@@ -51,11 +51,12 @@ def main():
     
     # Configuration
     config = {
-        "shape_count": 50,         # Number of shapes to generate
+        "shape_count": 20,         # Reduced from 50 to 20 for faster testing
         "shape_mode": 1,           # 1=triangle
-        "population_size": 30,     # Population size for DE
-        "generations": 10,         # Number of generations for DE
-        "input_resize": 256,       # Resize input to this size
+        "population_size": 20,     # Reduced from 30 to 20
+        "generations": 5,          # Reduced from 10 to 5
+        "input_resize": 128,       # Reduced from 256 to 128 for faster processing
+        "batch_size": 64,          # Increased batch size for better GPU utilization
     }
     
     print(f"Processing {input_path}...")

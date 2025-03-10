@@ -34,10 +34,11 @@ class DifferentialEvolution:
         self.height = image_height
         
         # DE parameters
-        self.population_size = config["population_size"]
-        self.crossover_probability = config["crossover_probability"]
-        self.mutation_factor = config["mutation_factor"]
-        self.generations = config["generations"]
+        self.population_size = config.get("population_size", 50)
+        self.crossover_probability = config.get("crossover_probability", 0.7)
+        self.mutation_factor = config.get("mutation_factor", 0.8)
+        self.generations = config.get("generations", 20)
+        self.batch_size = config.get("batch_size", 32)
         
     def _init_population(self, shape_type) -> List[Shape]:
         """
@@ -69,51 +70,66 @@ class DifferentialEvolution:
         Returns:
             Tuple[List[float], List[Dict[str, Any]]]: Scores and color information
         """
-        # Convert shapes to tensor masks in parallel
-        batch_size = len(population)
-        masks = []
-        for shape in population:
-            mask = shape.to_tensor()
-            # Add batch and channel dimensions
-            mask = mask.unsqueeze(0).unsqueeze(0)
-            masks.append(mask)
+        # Process in smaller batches to avoid OOM errors
+        all_scores = []
+        all_colors = []
         
-        # Stack masks into a batch
-        stacked_masks = torch.cat(masks, dim=0)
-        
-        # Compute optimal colors for each shape
-        colors = []
-        for i in range(batch_size):
-            color_dict = self._compute_optimal_color(target_image, current_image, stacked_masks[i][0], alpha)
-            colors.append(color_dict)
-        
-        # Create candidate images by applying each shape with its optimal color
-        candidates = []
-        for i in range(batch_size):
-            # Apply shape with computed color
-            color = colors[i]
-            rgb_tensor = torch.tensor([color['r'], color['g'], color['b']], device=self.gpu.device) / 255.0
-            alpha_value = color['a'] / 255.0
+        for i in range(0, len(population), self.batch_size):
+            batch = population[i:i+self.batch_size]
+            batch_size = len(batch)
             
-            # Apply shape to current image
-            mask = stacked_masks[i][0]
+            # Convert shapes to tensor masks in parallel
+            masks = []
+            for shape in batch:
+                mask = shape.to_tensor()
+                # Add batch and channel dimensions
+                mask = mask.unsqueeze(0).unsqueeze(0)
+                masks.append(mask)
             
-            # Reshape and expand dimensions for proper broadcasting
-            mask_expanded = mask.unsqueeze(0).expand_as(current_image)
-            rgb_expanded = rgb_tensor.view(-1, 1, 1).expand_as(current_image)
+            # Stack masks into a batch
+            stacked_masks = torch.cat(masks, dim=0)
             
-            # Apply alpha blending with proper broadcasting
-            candidate = current_image * (1 - mask_expanded * alpha_value) + rgb_expanded * mask_expanded * alpha_value
-            candidates.append(candidate)
+            # Compute optimal colors for each shape
+            batch_colors = []
+            for j in range(batch_size):
+                color_dict = self._compute_optimal_color(target_image, current_image, stacked_masks[j][0], alpha)
+                batch_colors.append(color_dict)
+            
+            # Create candidate images by applying each shape with its optimal color
+            candidates = []
+            for j in range(batch_size):
+                # Apply shape with computed color
+                color = batch_colors[j]
+                rgb_tensor = torch.tensor([color['r'], color['g'], color['b']], device=self.gpu.device) / 255.0
+                alpha_value = color['a'] / 255.0
+                
+                # Apply shape to current image
+                mask = stacked_masks[j][0]
+                
+                # Reshape and expand dimensions for proper broadcasting
+                mask_expanded = mask.unsqueeze(0).expand_as(current_image)
+                rgb_expanded = rgb_tensor.view(-1, 1, 1).expand_as(current_image)
+                
+                # Apply alpha blending with proper broadcasting
+                candidate = current_image * (1 - mask_expanded * alpha_value) + rgb_expanded * mask_expanded * alpha_value
+                candidates.append(candidate)
+            
+            # Stack candidates into a batch for parallel evaluation
+            stacked_candidates = torch.stack(candidates)
+            
+            # Compute differences in parallel
+            expanded_target = target_image.unsqueeze(0).expand(batch_size, -1, -1, -1)
+            differences = torch.mean((stacked_candidates - expanded_target) ** 2, dim=(1, 2, 3))
+            
+            # Add to results
+            all_scores.extend(self.gpu.to_numpy(differences).tolist())
+            all_colors.extend(batch_colors)
+            
+            # Clear GPU cache if possible
+            if hasattr(torch.cuda, 'empty_cache'):
+                torch.cuda.empty_cache()
         
-        # Stack candidates into a batch for parallel evaluation
-        stacked_candidates = torch.stack(candidates)
-        
-        # Compute differences in parallel
-        expanded_target = target_image.unsqueeze(0).expand(batch_size, -1, -1, -1)
-        differences = torch.mean((stacked_candidates - expanded_target) ** 2, dim=(1, 2, 3))
-        
-        return self.gpu.to_numpy(differences).tolist(), colors
+        return all_scores, all_colors
     
     def _compute_optimal_color(self, target, current, shape_mask, alpha) -> Dict[str, int]:
         """
@@ -251,17 +267,23 @@ class DifferentialEvolution:
         best_color = colors[best_idx]
         best_score = scores[best_idx]
         
-        # Evolve the population
+        # Evolve the population with early stopping if score doesn't improve
+        last_best_score = best_score
+        no_improvement_count = 0
+        max_no_improvement = 3  # Stop after 3 generations without improvement
+        
         for generation in range(self.generations):
-            # Create and evaluate trials
+            # Create trials all at once
             trials = []
             for i in range(self.population_size):
                 trial = self._create_trial(i, population)
                 trials.append(trial)
             
+            # Evaluate all trials in parallel
             trial_scores, trial_colors = self._evaluate_batch(trials, target_image, current_image, alpha)
             
-            # Selection
+            # Perform selection and update population
+            improved = False
             for i in range(self.population_size):
                 if trial_scores[i] < scores[i]:
                     population[i] = trials[i]
@@ -274,6 +296,17 @@ class DifferentialEvolution:
                         best_shape = trials[i]
                         best_color = trial_colors[i]
                         best_score = trial_scores[i]
+                        improved = True
+            
+            # Early stopping check
+            if improved:
+                last_best_score = best_score
+                no_improvement_count = 0
+            else:
+                no_improvement_count += 1
+                if no_improvement_count >= max_no_improvement:
+                    print(f"Early stopping at generation {generation+1}/{self.generations} - no improvement for {max_no_improvement} generations")
+                    break
         
         elapsed = time.time() - start_time
         print(f"Differential evolution completed in {elapsed:.2f}s, best score: {best_score:.6f}")
