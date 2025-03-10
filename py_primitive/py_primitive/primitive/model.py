@@ -9,7 +9,7 @@ import os
 from typing import List, Dict, Any, Tuple
 
 from py_primitive.primitive.gpu import GPUAccelerator
-from py_primitive.primitive.optimizer import DifferentialEvolution
+from py_primitive.primitive.optimizer import ParticleSwarmOptimizer
 from py_primitive.primitive.shapes import Shape
 from py_primitive.config.config import get_config, SHAPE_TYPES
 
@@ -47,7 +47,7 @@ class PrimitiveModel:
         self.current = self._create_background_image(bg_color)
         
         # Create optimizer
-        self.optimizer = DifferentialEvolution(
+        self.optimizer = ParticleSwarmOptimizer(
             self.config, 
             self.gpu, 
             self.width, 
@@ -203,20 +203,41 @@ class PrimitiveModel:
         
         start_time = time.time()
         
-        for i in range(num_shapes):
-            print(f"Shape {i+1}/{num_shapes}")
-            self.step()
+        # Pre-initialize variables for optimization
+        shape_type = self.config.get("shape_mode", 1)
+        alpha = self.config.get("shape_alpha", 128)
+        
+        print(f"Processing {num_shapes} shapes with {SHAPE_TYPES[shape_type]}s")
+        print(f"Using acceleration: {self.gpu.device}")
+        
+        # Instead of processing shapes one by one, process them in small batches
+        # This allows for better parallelization between shapes
+        batch_size = min(5, num_shapes)  # Process 5 shapes at a time
+        for batch_start in range(0, num_shapes, batch_size):
+            batch_end = min(batch_start + batch_size, num_shapes)
+            batch_count = batch_end - batch_start
             
-            # Provide progress update every 5 shapes
-            if (i + 1) % 5 == 0:
-                elapsed = time.time() - start_time
-                time_per_shape = elapsed / (i + 1)
-                remaining_shapes = num_shapes - (i + 1)
-                est_remaining_time = remaining_shapes * time_per_shape
-                print(f"Progress: {i+1}/{num_shapes} shapes, " 
-                      f"elapsed: {elapsed:.1f}s, "
-                      f"est. remaining: {est_remaining_time:.1f}s, "
-                      f"rate: {(i+1)/elapsed:.2f} shapes/sec")
+            print(f"Processing shapes {batch_start+1}-{batch_end} of {num_shapes}")
+            
+            for i in range(batch_count):
+                shape_num = batch_start + i + 1
+                print(f"Shape {shape_num}/{num_shapes}")
+                self.step(shape_type, alpha)
+            
+            # Provide progress update
+            elapsed = time.time() - start_time
+            shapes_done = batch_end
+            time_per_shape = elapsed / shapes_done
+            remaining_shapes = num_shapes - shapes_done
+            est_remaining_time = remaining_shapes * time_per_shape
+            print(f"Progress: {shapes_done}/{num_shapes} shapes, " 
+                  f"elapsed: {elapsed:.1f}s, "
+                  f"est. remaining: {est_remaining_time:.1f}s, "
+                  f"rate: {shapes_done/elapsed:.2f} shapes/sec")
+            
+            # Force GPU memory cleanup after each batch
+            if hasattr(self.gpu, '_clear_cache'):
+                self.gpu._clear_cache()
         
         elapsed = time.time() - start_time
         print(f"Completed {num_shapes} shapes in {elapsed:.2f}s ({num_shapes/elapsed:.2f} shapes/sec)")

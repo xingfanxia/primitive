@@ -107,54 +107,57 @@ class Triangle(Shape):
     
     def to_tensor(self):
         """
-        Convert the triangle to a tensor mask.
+        Convert the triangle to a tensor mask using an optimized algorithm.
         
         Returns:
             torch.Tensor: Binary mask tensor with 1s inside the triangle
         """
-        # Create a coordinate grid for the image
-        y, x = torch.meshgrid(
-            torch.arange(self.height, device=self.gpu.device, dtype=torch.float32), 
-            torch.arange(self.width, device=self.gpu.device, dtype=torch.float32),
-            indexing='ij'
-        )
+        # Get device and dtype from accelerator
+        device = self.gpu.device
+        dtype = torch.float32
         
-        # Extract triangle vertex coordinates
-        x0, y0 = self.points[0]
-        x1, y1 = self.points[1]
-        x2, y2 = self.points[2]
+        # Extract triangle vertex coordinates and ensure they are float
+        x0, y0 = float(self.points[0][0]), float(self.points[0][1])
+        x1, y1 = float(self.points[1][0]), float(self.points[1][1])
+        x2, y2 = float(self.points[2][0]), float(self.points[2][1])
         
-        # Convert to tensor coordinates (ensure float type)
-        vertices = torch.tensor([
-            [float(x0), float(y0)], 
-            [float(x1), float(y1)], 
-            [float(x2), float(y2)]
-        ], device=self.gpu.device, dtype=torch.float32)
+        # Calculate bounding box for the triangle to reduce computation
+        x_min = max(0, int(min(x0, x1, x2)))
+        y_min = max(0, int(min(y0, y1, y2)))
+        x_max = min(self.width, int(max(x0, x1, x2)) + 1)
+        y_max = min(self.height, int(max(y0, y1, y2)) + 1)
         
-        # Compute barycentric coordinates for the entire image
-        # This is a GPU-accelerated way to determine which pixels are inside the triangle
-        v0 = vertices[2] - vertices[0]
-        v1 = vertices[1] - vertices[0]
-        v2 = torch.stack([x.flatten(), y.flatten()], dim=1) - vertices[0]
+        # If the triangle is outside the image or has no area, return empty mask
+        if x_min >= x_max or y_min >= y_max:
+            return torch.zeros((self.height, self.width), device=device, dtype=dtype)
         
-        # Compute dot products
-        d00 = torch.sum(v0 * v0)
-        d01 = torch.sum(v0 * v1)
-        d11 = torch.sum(v1 * v1)
-        d20 = torch.matmul(v2, v0)
-        d21 = torch.matmul(v2, v1)
+        # Create coordinate tensors just for the bounding box region
+        y_coords = torch.arange(y_min, y_max, device=device, dtype=dtype)
+        x_coords = torch.arange(x_min, x_max, device=device, dtype=dtype)
+        y_grid, x_grid = torch.meshgrid(y_coords, x_coords, indexing='ij')
         
-        # Compute barycentric coordinates
-        denom = d00 * d11 - d01 * d01 + 1e-10  # Add small epsilon to avoid division by zero
-        v = (d11 * d20 - d01 * d21) / denom
-        w = (d00 * d21 - d01 * d20) / denom
-        u = 1.0 - v - w
+        # Compute edge functions for the triangle - this is a more efficient way to test point-in-triangle
+        # Each edge function returns positive values on one side of the line and negative on the other
+        # A point is inside the triangle if all edge functions are positive (or all negative)
         
-        # A point is inside the triangle if all barycentric coordinates are >= 0
-        mask = (u >= 0) & (v >= 0) & (w >= 0)
-        mask = mask.reshape(self.height, self.width)
+        # Edge 1: (x1,y1) -> (x2,y2)
+        edge1 = (x1 - x0) * (y_grid - y0) - (y1 - y0) * (x_grid - x0)
         
-        return mask.float()
+        # Edge 2: (x2,y2) -> (x0,y0)
+        edge2 = (x2 - x1) * (y_grid - y1) - (y2 - y1) * (x_grid - x1)
+        
+        # Edge 3: (x0,y0) -> (x1,y1)
+        edge3 = (x0 - x2) * (y_grid - y2) - (y0 - y2) * (x_grid - x2)
+        
+        # Check if point is inside triangle (all edges have the same sign)
+        # We choose to check if all are >= 0 (clockwise triangle)
+        inside = ((edge1 >= 0) & (edge2 >= 0) & (edge3 >= 0)) | ((edge1 <= 0) & (edge2 <= 0) & (edge3 <= 0))
+        
+        # Create the full mask by embedding the bounding box result
+        mask = torch.zeros((self.height, self.width), device=device, dtype=dtype)
+        mask[y_min:y_max, x_min:x_max] = inside.float()
+        
+        return mask
     
     def to_dict(self):
         """
@@ -271,29 +274,32 @@ class Rectangle(Shape):
     
     def to_tensor(self):
         """
-        Convert the rectangle to a tensor mask.
+        Convert the rectangle to a tensor mask using bounding box optimization.
         
         Returns:
             torch.Tensor: Binary mask tensor with 1s inside the rectangle
         """
-        # Create a coordinate grid for the image
-        y_grid, x_grid = torch.meshgrid(
-            torch.arange(self.height, device=self.gpu.device, dtype=torch.float32),
-            torch.arange(self.width, device=self.gpu.device, dtype=torch.float32),
-            indexing='ij'
-        )
+        # Get device and dtype from accelerator
+        device = self.gpu.device
+        dtype = torch.float32
         
-        # Convert rectangle properties to float
-        x_min = float(self.x)
-        y_min = float(self.y)
-        x_max = float(self.x + self.w)
-        y_max = float(self.y + self.h)
+        # Convert properties to int for faster processing
+        x_min = max(0, int(self.x))
+        y_min = max(0, int(self.y))
+        x_max = min(self.width, int(self.x + self.w))
+        y_max = min(self.height, int(self.y + self.h))
         
-        # Create rectangle mask
-        mask = ((x_grid >= x_min) & (x_grid < x_max) & 
-                (y_grid >= y_min) & (y_grid < y_max))
+        # If the rectangle is outside the image or has no area, return empty mask
+        if x_min >= x_max or y_min >= y_max:
+            return torch.zeros((self.height, self.width), device=device, dtype=dtype)
         
-        return mask.float()
+        # Create an empty mask
+        mask = torch.zeros((self.height, self.width), device=device, dtype=dtype)
+        
+        # Set the rectangle area to 1
+        mask[y_min:y_max, x_min:x_max] = 1.0
+        
+        return mask
     
     def to_dict(self):
         """
@@ -417,32 +423,49 @@ class Ellipse(Shape):
     
     def to_tensor(self):
         """
-        Convert the ellipse to a tensor mask.
+        Convert the ellipse to a tensor mask using bounding box optimization.
         
         Returns:
             torch.Tensor: Binary mask tensor with 1s inside the ellipse
         """
-        # Create a coordinate grid for the image
-        y_grid, x_grid = torch.meshgrid(
-            torch.arange(self.height, device=self.gpu.device, dtype=torch.float32),
-            torch.arange(self.width, device=self.gpu.device, dtype=torch.float32),
-            indexing='ij'
-        )
+        # Get device and dtype from accelerator
+        device = self.gpu.device
+        dtype = torch.float32
         
-        # Convert ellipse properties to float
+        # Convert properties to float
         cx = float(self.cx)
         cy = float(self.cy)
         rx = float(self.rx)
         ry = float(self.ry)
         
-        # Compute normalized distance from center for each pixel
-        dx = (x_grid - cx) / rx
-        dy = (y_grid - cy) / ry
+        # Calculate bounding box for the ellipse to reduce computation
+        x_min = max(0, int(cx - rx))
+        y_min = max(0, int(cy - ry))
+        x_max = min(self.width, int(cx + rx) + 1)
+        y_max = min(self.height, int(cy + ry) + 1)
         
-        # Create ellipse mask
-        mask = (dx**2 + dy**2) <= 1.0
+        # If the ellipse is outside the image or has no area, return empty mask
+        if x_min >= x_max or y_min >= y_max:
+            return torch.zeros((self.height, self.width), device=device, dtype=dtype)
         
-        return mask.float()
+        # Create coordinate tensors just for the bounding box region
+        y_coords = torch.arange(y_min, y_max, device=device, dtype=dtype)
+        x_coords = torch.arange(x_min, x_max, device=device, dtype=dtype)
+        y_grid, x_grid = torch.meshgrid(y_coords, x_coords, indexing='ij')
+        
+        # Compute normalized squared distance from center
+        normalized_x = (x_grid - cx) / rx
+        normalized_y = (y_grid - cy) / ry
+        dist_squared = normalized_x**2 + normalized_y**2
+        
+        # Create mask for ellipse (points where normalized distance <= 1)
+        ellipse_mask = (dist_squared <= 1.0).float()
+        
+        # Create the full mask by embedding the bounding box result
+        mask = torch.zeros((self.height, self.width), device=device, dtype=dtype)
+        mask[y_min:y_max, x_min:x_max] = ellipse_mask
+        
+        return mask
     
     def to_dict(self):
         """

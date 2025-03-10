@@ -14,15 +14,16 @@ DEFAULT_CONFIG = {
     "shape_mode": 1,  # 1=triangle, 2=rect, 3=ellipse, 4=circle, 5=rotatedrect
     "shape_alpha": 128,
     
-    # Differential Evolution parameters
-    "population_size": 50,
-    "generations": 20,
-    "crossover_probability": 0.7,
-    "mutation_factor": 0.8,
+    # Particle Swarm Optimization parameters
+    "swarm_size": 150,
+    "iterations": 10,
+    "cognitive_weight": 1.5,
+    "social_weight": 2.0,
+    "inertia_weight": 0.6,
     
     # GPU/Performance settings
     "use_gpu": True,
-    "batch_size": 32,
+    "batch_size": 128,
     "num_workers": 4,
 }
 
