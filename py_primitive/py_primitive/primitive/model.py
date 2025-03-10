@@ -172,12 +172,12 @@ class PrimitiveModel:
         rgb_tensor = torch.tensor([color['r'], color['g'], color['b']], device=self.gpu.device) / 255.0
         alpha_value = color['a'] / 255.0
         
-        # Apply shape to current image
-        mask = mask.unsqueeze(-1)  # Add channel dimension for broadcasting
-        rgb_mask = mask * rgb_tensor.view(3, 1, 1)
+        # Expand mask and rgb tensor to match image dimensions for proper broadcasting
+        mask_expanded = mask.unsqueeze(0).expand_as(self.current)
+        rgb_expanded = rgb_tensor.view(-1, 1, 1).expand_as(self.current)
         
-        # Apply alpha blending
-        self.current = self.current * (1 - mask * alpha_value) + rgb_mask * alpha_value
+        # Apply alpha blending with proper broadcasting
+        self.current = self.current * (1 - mask_expanded * alpha_value) + rgb_expanded * mask_expanded * alpha_value
         
         # Update state
         self.shapes.append(shape)
@@ -287,7 +287,7 @@ class PrimitiveModel:
         
         # Start with background
         bg_color = self._compute_background_color()
-        current = torch.ones_like(self.target) * self.gpu.to_tensor(bg_color)
+        current = self._create_background_image(bg_color)
         
         # First frame is just the background
         current_np = self.gpu.to_numpy(current)
@@ -301,7 +301,7 @@ class PrimitiveModel:
                 continue
                 
             # Reset to background
-            current = torch.ones_like(self.target) * self.gpu.to_tensor(bg_color)
+            current = self._create_background_image(bg_color)
             
             # Add shapes up to idx
             for i in range(idx):
@@ -315,12 +315,12 @@ class PrimitiveModel:
                 rgb_tensor = torch.tensor([color['r'], color['g'], color['b']], device=self.gpu.device) / 255.0
                 alpha_value = color['a'] / 255.0
                 
-                # Apply shape to current image
-                mask = mask.unsqueeze(-1)  # Add channel dimension for broadcasting
-                rgb_mask = mask * rgb_tensor.view(3, 1, 1)
+                # Expand mask and rgb tensor to match image dimensions for proper broadcasting
+                mask_expanded = mask.unsqueeze(0).expand_as(current)
+                rgb_expanded = rgb_tensor.view(-1, 1, 1).expand_as(current)
                 
-                # Apply alpha blending
-                current = current * (1 - mask * alpha_value) + rgb_mask * alpha_value
+                # Apply alpha blending with proper broadcasting
+                current = current * (1 - mask_expanded * alpha_value) + rgb_expanded * mask_expanded * alpha_value
             
             # Convert to PIL image
             current_np = self.gpu.to_numpy(current)

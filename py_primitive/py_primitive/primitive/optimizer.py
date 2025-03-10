@@ -96,18 +96,21 @@ class DifferentialEvolution:
             alpha_value = color['a'] / 255.0
             
             # Apply shape to current image
-            mask = stacked_masks[i][0].unsqueeze(-1)  # Add channel dimension for broadcasting
-            rgb_mask = mask * rgb_tensor
+            mask = stacked_masks[i][0]
             
-            # Apply alpha blending
-            candidate = current_image * (1 - mask * alpha_value) + rgb_mask * alpha_value
+            # Reshape and expand dimensions for proper broadcasting
+            mask_expanded = mask.unsqueeze(0).expand_as(current_image)
+            rgb_expanded = rgb_tensor.view(-1, 1, 1).expand_as(current_image)
+            
+            # Apply alpha blending with proper broadcasting
+            candidate = current_image * (1 - mask_expanded * alpha_value) + rgb_expanded * mask_expanded * alpha_value
             candidates.append(candidate)
         
         # Stack candidates into a batch for parallel evaluation
         stacked_candidates = torch.stack(candidates)
         
         # Compute differences in parallel
-        expanded_target = target_image.expand(batch_size, -1, -1, -1)
+        expanded_target = target_image.unsqueeze(0).expand(batch_size, -1, -1, -1)
         differences = torch.mean((stacked_candidates - expanded_target) ** 2, dim=(1, 2, 3))
         
         return self.gpu.to_numpy(differences).tolist(), colors
