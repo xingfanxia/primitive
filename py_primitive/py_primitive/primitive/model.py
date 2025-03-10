@@ -155,6 +155,10 @@ class PrimitiveModel:
         
         print(f"Added {SHAPE_TYPES[shape_type]}, score={score:.6f}, time={elapsed:.2f}s, shapes/sec={shapes_per_sec:.2f}")
         
+        # Clear GPU cache periodically
+        if hasattr(self.gpu, '_clear_cache'):
+            self.gpu._clear_cache()
+        
         return score
     
     def _add_shape(self, shape, color):
@@ -202,6 +206,17 @@ class PrimitiveModel:
         for i in range(num_shapes):
             print(f"Shape {i+1}/{num_shapes}")
             self.step()
+            
+            # Provide progress update every 5 shapes
+            if (i + 1) % 5 == 0:
+                elapsed = time.time() - start_time
+                time_per_shape = elapsed / (i + 1)
+                remaining_shapes = num_shapes - (i + 1)
+                est_remaining_time = remaining_shapes * time_per_shape
+                print(f"Progress: {i+1}/{num_shapes} shapes, " 
+                      f"elapsed: {elapsed:.1f}s, "
+                      f"est. remaining: {est_remaining_time:.1f}s, "
+                      f"rate: {(i+1)/elapsed:.2f} shapes/sec")
         
         elapsed = time.time() - start_time
         print(f"Completed {num_shapes} shapes in {elapsed:.2f}s ({num_shapes/elapsed:.2f} shapes/sec)")

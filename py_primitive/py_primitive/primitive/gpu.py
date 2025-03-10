@@ -18,6 +18,17 @@ class GPUAccelerator:
         """
         self.use_gpu = use_gpu and self._is_mps_available()
         self.device = self._get_device()
+        print(f"Using device: {self.device}")
+        
+        # Set default dtype to float32 for MPS compatibility
+        torch.set_default_dtype(torch.float32)
+        
+        # Performance optimization settings
+        # Setting these too high can cause out-of-memory errors
+        self.max_shapes_per_batch = 64
+        
+        # Initialize cache for tensor operations
+        self._cache = {}
         
     def _is_mps_available(self):
         """Check if MPS (Metal Performance Shaders) is available."""
@@ -29,20 +40,39 @@ class GPUAccelerator:
             return torch.device("mps")
         return torch.device("cpu")
     
-    def to_tensor(self, data, dtype=torch.float32):
+    def _clear_cache(self):
+        """Clear the tensor operation cache."""
+        self._cache = {}
+        # Also try to clear GPU cache if possible
+        if hasattr(torch.cuda, 'empty_cache'):
+            torch.cuda.empty_cache()
+        
+    def to_tensor(self, data, dtype=torch.float32, cache_key=None):
         """
         Convert numpy array or list to tensor and move to the appropriate device.
         
         Args:
             data: Numpy array or list to convert
             dtype: Tensor data type
+            cache_key: Optional key for caching the tensor
             
         Returns:
             torch.Tensor: Tensor on the appropriate device
         """
+        # Use cached tensor if available
+        if cache_key is not None and cache_key in self._cache:
+            return self._cache[cache_key]
+            
         if isinstance(data, torch.Tensor):
-            return data.to(self.device, dtype)
-        return torch.tensor(data, dtype=dtype, device=self.device)
+            tensor = data.to(self.device, dtype)
+        else:
+            tensor = torch.tensor(data, dtype=dtype, device=self.device)
+            
+        # Cache the tensor if a key was provided
+        if cache_key is not None:
+            self._cache[cache_key] = tensor
+            
+        return tensor
     
     def to_numpy(self, tensor):
         """
