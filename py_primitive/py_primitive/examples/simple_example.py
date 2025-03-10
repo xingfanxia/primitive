@@ -7,14 +7,17 @@ import sys
 import time
 from pathlib import Path
 
+# Add parent directory to Python path for easy imports
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
 from py_primitive.primitive.model import PrimitiveModel
 
 def main():
     """Run a simple example of primitive image generation."""
     # Check if input image is provided
     if len(sys.argv) < 2:
-        print("Usage: python -m py_primitive.examples.simple_example <input_image>")
-        print("Example: python -m py_primitive.examples.simple_example ../examples/monalisa.jpg")
+        print("Usage: python simple_example.py <input_image>")
+        print("Example: python simple_example.py ../examples/monalisa.jpg")
         return 1
     
     input_path = sys.argv[1]
