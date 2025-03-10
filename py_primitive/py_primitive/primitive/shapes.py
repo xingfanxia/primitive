@@ -114,8 +114,8 @@ class Triangle(Shape):
         """
         # Create a coordinate grid for the image
         y, x = torch.meshgrid(
-            torch.arange(self.height, device=self.gpu.device), 
-            torch.arange(self.width, device=self.gpu.device),
+            torch.arange(self.height, device=self.gpu.device, dtype=torch.float32), 
+            torch.arange(self.width, device=self.gpu.device, dtype=torch.float32),
             indexing='ij'
         )
         
@@ -124,10 +124,12 @@ class Triangle(Shape):
         x1, y1 = self.points[1]
         x2, y2 = self.points[2]
         
-        # Convert to tensor coordinates
+        # Convert to tensor coordinates (ensure float type)
         vertices = torch.tensor([
-            [x0, y0], [x1, y1], [x2, y2]
-        ], device=self.gpu.device)
+            [float(x0), float(y0)], 
+            [float(x1), float(y1)], 
+            [float(x2), float(y2)]
+        ], device=self.gpu.device, dtype=torch.float32)
         
         # Compute barycentric coordinates for the entire image
         # This is a GPU-accelerated way to determine which pixels are inside the triangle
@@ -276,14 +278,20 @@ class Rectangle(Shape):
         """
         # Create a coordinate grid for the image
         y_grid, x_grid = torch.meshgrid(
-            torch.arange(self.height, device=self.gpu.device),
-            torch.arange(self.width, device=self.gpu.device),
+            torch.arange(self.height, device=self.gpu.device, dtype=torch.float32),
+            torch.arange(self.width, device=self.gpu.device, dtype=torch.float32),
             indexing='ij'
         )
         
+        # Convert rectangle properties to float
+        x_min = float(self.x)
+        y_min = float(self.y)
+        x_max = float(self.x + self.w)
+        y_max = float(self.y + self.h)
+        
         # Create rectangle mask
-        mask = ((x_grid >= self.x) & (x_grid < self.x + self.w) & 
-                (y_grid >= self.y) & (y_grid < self.y + self.h))
+        mask = ((x_grid >= x_min) & (x_grid < x_max) & 
+                (y_grid >= y_min) & (y_grid < y_max))
         
         return mask.float()
     
@@ -416,14 +424,20 @@ class Ellipse(Shape):
         """
         # Create a coordinate grid for the image
         y_grid, x_grid = torch.meshgrid(
-            torch.arange(self.height, device=self.gpu.device),
-            torch.arange(self.width, device=self.gpu.device),
+            torch.arange(self.height, device=self.gpu.device, dtype=torch.float32),
+            torch.arange(self.width, device=self.gpu.device, dtype=torch.float32),
             indexing='ij'
         )
         
+        # Convert ellipse properties to float
+        cx = float(self.cx)
+        cy = float(self.cy)
+        rx = float(self.rx)
+        ry = float(self.ry)
+        
         # Compute normalized distance from center for each pixel
-        dx = (x_grid - self.cx) / self.rx
-        dy = (y_grid - self.cy) / self.ry
+        dx = (x_grid - cx) / rx
+        dy = (y_grid - cy) / ry
         
         # Create ellipse mask
         mask = (dx**2 + dy**2) <= 1.0
