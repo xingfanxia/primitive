@@ -1,20 +1,21 @@
 """
-Particle Swarm Optimization for finding optimal shapes.
+GPU-optimized randomized search for finding optimal shapes.
 """
 import torch
 import numpy as np
 import random
-from typing import List, Tuple, Dict, Any, Callable
+from typing import List, Tuple, Dict, Any
 import time
 
 from py_primitive.primitive.shapes import Shape, create_random_shape
 
-class ParticleSwarmOptimizer:
+class RandomizedShapeOptimizer:
     """
-    Particle Swarm Optimization for finding optimal shapes.
+    Fast GPU-optimized randomized search for finding optimal shapes.
     
-    This class implements a highly parallelized PSO algorithm optimized for GPU.
-    It evaluates large batches of candidate shapes simultaneously to maximize GPU utilization.
+    This implements a parallelized random search with local refinement.
+    It evaluates a large batch of random candidates at once, then refines
+    the best few candidates with small perturbations.
     """
     
     def __init__(self, config, gpu_accelerator, image_width, image_height):
@@ -32,32 +33,25 @@ class ParticleSwarmOptimizer:
         self.width = image_width
         self.height = image_height
         
-        # PSO parameters
-        self.swarm_size = config.get("swarm_size", 100)  # Larger swarm for better parallelism
-        self.iterations = config.get("iterations", 10)
-        self.cognitive_weight = config.get("cognitive_weight", 1.5)
-        self.social_weight = config.get("social_weight", 1.5)
-        self.inertia_weight = config.get("inertia_weight", 0.7)
-        self.batch_size = config.get("batch_size", 128)  # Larger batch size for GPU
+        # Optimization parameters
+        self.candidates = config.get("candidates", 75)  # Number of initial random candidates
+        self.refinements = config.get("refinements", 5)  # Number of refinement steps
+        self.top_candidates = config.get("top_candidates", 3)  # Number of top candidates to refine
+        self.batch_size = config.get("batch_size", 75)  # Process in batches
         
-        # Keep track of velocity and position for each particle
-        self.velocities = {}
-        
-    def _init_swarm(self, shape_type) -> List[Shape]:
+    def _generate_candidates(self, shape_type, count) -> List[Shape]:
         """
-        Initialize a swarm of random shapes.
+        Generate random shape candidates.
         
         Args:
             shape_type (int): Type of shape to create
+            count (int): Number of candidates to generate
             
         Returns:
-            List[Shape]: Swarm of shapes
+            List[Shape]: List of random shape candidates
         """
-        swarm = []
-        # Create a large batch of shapes at once
-        for _ in range(self.swarm_size):
-            swarm.append(create_random_shape(shape_type, self.width, self.height, self.gpu))
-        return swarm
+        return [create_random_shape(shape_type, self.width, self.height, self.gpu) 
+                for _ in range(count)]
     
     def _evaluate_batch(self, 
                       shapes: List[Shape], 
@@ -76,228 +70,146 @@ class ParticleSwarmOptimizer:
         Returns:
             Tuple[List[float], List[Dict[str, Any]]]: Scores and color information
         """
-        # Process in batches to avoid OOM errors
+        batch_size = len(shapes)
+        
+        # Fast path for small batches - process all at once
+        if batch_size <= self.batch_size:
+            return self._evaluate_shapes(shapes, target_image, current_image, alpha)
+        
+        # Process in batches for larger sets
         all_scores = []
         all_colors = []
         
-        for i in range(0, len(shapes), self.batch_size):
+        for i in range(0, batch_size, self.batch_size):
             batch = shapes[i:i+self.batch_size]
-            batch_size = len(batch)
-            
-            # Convert shapes to tensor masks in parallel
-            masks = torch.zeros((batch_size, 1, self.height, self.width), device=self.gpu.device)
-            for j, shape in enumerate(batch):
-                mask = shape.to_tensor()
-                masks[j, 0] = mask
-            
-            # Compute optimal colors for all shapes in the batch simultaneously
-            batch_colors = self._compute_batch_colors(target_image, current_image, masks, alpha)
-            
-            # Create candidate images by applying each shape with its optimal color
-            candidates = self._apply_shapes_batch(current_image, masks, batch_colors, alpha)
-            
-            # Compute differences in parallel
-            expanded_target = target_image.unsqueeze(0).expand(batch_size, -1, -1, -1)
-            differences = torch.mean((candidates - expanded_target) ** 2, dim=(1, 2, 3))
-            
-            # Add to results
-            all_scores.extend(self.gpu.to_numpy(differences).tolist())
-            all_colors.extend(batch_colors)
-            
-            # Clear GPU cache
-            if hasattr(torch.cuda, 'empty_cache'):
-                torch.cuda.empty_cache()
+            scores, colors = self._evaluate_shapes(batch, target_image, current_image, alpha)
+            all_scores.extend(scores)
+            all_colors.extend(colors)
         
         return all_scores, all_colors
     
-    def _compute_batch_colors(self, 
-                             target: torch.Tensor, 
-                             current: torch.Tensor, 
-                             masks: torch.Tensor, 
-                             alpha: int) -> List[Dict[str, int]]:
+    def _evaluate_shapes(self, 
+                        shapes: List[Shape], 
+                        target_image: torch.Tensor, 
+                        current_image: torch.Tensor, 
+                        alpha: int) -> Tuple[List[float], List[Dict[str, Any]]]:
         """
-        Compute optimal colors for multiple shapes in parallel.
+        Core evaluation function for a small batch of shapes.
         
         Args:
-            target: Target image tensor
-            current: Current image tensor
-            masks: Batch of shape masks [batch_size, 1, height, width]
-            alpha: Alpha value
-            
-        Returns:
-            List[Dict[str, int]]: List of color dictionaries
-        """
-        batch_size = masks.shape[0]
-        results = []
-        alpha_value = alpha / 255.0
-        
-        # Calculate impact of each shape mask on the image
-        # This is done for the entire batch at once
-        masks_flat = masks.view(batch_size, 1, -1)  # [batch, 1, height*width]
-        target_flat = target.view(3, -1).unsqueeze(0)  # [1, 3, height*width]
-        current_flat = current.view(3, -1).unsqueeze(0)  # [1, 3, height*width]
-        
-        # Compute the weighted sum for each shape (color calculation)
-        # This vectorizes the color computation for all shapes at once
-        for i in range(batch_size):
-            mask = masks[i, 0]
-            if torch.sum(mask) < 1:
-                # Empty shape, use default color
-                results.append({'r': 0, 'g': 0, 'b': 0, 'a': alpha})
-                continue
-                
-            # Extract active pixels for this mask
-            mask_bool = mask.bool()
-            target_pixels = target[:, mask_bool]
-            current_pixels = current[:, mask_bool]
-            
-            # Compute optimal color using vectorized operations
-            if alpha == 0:
-                # Algorithm chooses alpha - simplified version for speed
-                best_alpha = 128
-                alpha_normalized = best_alpha / 255.0
-                
-                # Calculate the color that minimizes error
-                numerator = torch.sum(target_pixels - current_pixels * (1 - alpha_normalized), dim=1)
-                denominator = torch.sum(alpha_normalized * torch.ones_like(target_pixels[0]))
-                color = numerator / (denominator + 1e-8)
-                color = torch.clamp(color, 0, 1)
-                
-                alpha_value = best_alpha
-            else:
-                alpha_value = alpha
-                alpha_normalized = alpha / 255.0
-                
-                # Calculate the color that minimizes error
-                numerator = torch.sum(target_pixels - current_pixels * (1 - alpha_normalized), dim=1)
-                denominator = torch.sum(alpha_normalized * torch.ones_like(target_pixels[0]))
-                color = numerator / (denominator + 1e-8)
-                color = torch.clamp(color, 0, 1)
-            
-            # Convert to 8-bit RGB values
-            r, g, b = [int(c * 255) for c in self.gpu.to_numpy(color)]
-            results.append({'r': r, 'g': g, 'b': b, 'a': alpha_value})
-        
-        return results
-    
-    def _apply_shapes_batch(self, 
-                           current_image: torch.Tensor, 
-                           masks: torch.Tensor, 
-                           colors: List[Dict[str, int]], 
-                           alpha: int) -> torch.Tensor:
-        """
-        Apply a batch of shapes to the current image in parallel.
-        
-        Args:
+            shapes: List of shapes to evaluate
+            target_image: Target image tensor
             current_image: Current image tensor
-            masks: Batch of shape masks [batch_size, 1, height, width]
-            colors: List of color dictionaries
             alpha: Alpha value
             
         Returns:
-            torch.Tensor: Batch of candidate images [batch_size, channels, height, width]
+            Tuple[List[float], List[Dict[str, Any]]]: Scores and color information
         """
-        batch_size = masks.shape[0]
-        channels, height, width = current_image.shape
+        batch_size = len(shapes)
         
-        # Create batch of RGB tensors from colors
-        rgb_batch = torch.zeros((batch_size, 3), device=self.gpu.device)
-        alpha_values = torch.zeros(batch_size, device=self.gpu.device)
+        # Fast path for empty batch
+        if batch_size == 0:
+            return [], []
         
-        for i, color in enumerate(colors):
-            rgb_batch[i, 0] = color['r'] / 255.0
-            rgb_batch[i, 1] = color['g'] / 255.0
-            rgb_batch[i, 2] = color['b'] / 255.0
-            alpha_values[i] = color['a'] / 255.0
+        # Pre-allocate tensor for all masks at once
+        masks = torch.zeros((batch_size, self.height, self.width), 
+                           device=self.gpu.device, dtype=torch.float32)
         
-        # Expand current image for the batch
-        current_expanded = current_image.unsqueeze(0).expand(batch_size, -1, -1, -1)
+        # Generate all masks in parallel
+        for i, shape in enumerate(shapes):
+            masks[i] = shape.to_tensor()
         
-        # Expand masks for broadcasting with RGB channels
-        masks_expanded = masks.expand(-1, 3, -1, -1)
+        # Compute best colors for all shapes at once
+        alpha_value = alpha / 255.0
+        colors = []
         
-        # Expand RGB values for broadcasting with image dimensions
-        rgb_expanded = rgb_batch.view(batch_size, 3, 1, 1).expand(-1, -1, height, width)
+        for i in range(batch_size):
+            mask = masks[i]
+            
+            # Skip empty shapes
+            if torch.sum(mask) < 1:
+                colors.append({'r': 128, 'g': 128, 'b': 128, 'a': alpha})
+                continue
+            
+            # Extract pixels inside the shape
+            indices = mask > 0
+            target_pixels = target_image[:, indices]
+            current_pixels = current_image[:, indices]
+            
+            # For small shapes, use a simpler color computation
+            if target_pixels.shape[1] < 10:
+                rgb = torch.mean(target_image, dim=(1, 2))
+                r, g, b = [int(c * 255) for c in self.gpu.to_numpy(rgb)]
+                colors.append({'r': r, 'g': g, 'b': b, 'a': alpha})
+                continue
+            
+            # Calculate optimal color
+            color = self._compute_optimal_color(target_pixels, current_pixels, alpha_value)
+            r, g, b = [int(c * 255) for c in self.gpu.to_numpy(color)]
+            colors.append({'r': r, 'g': g, 'b': b, 'a': alpha})
         
-        # Expand alpha values for broadcasting
-        alpha_expanded = alpha_values.view(batch_size, 1, 1, 1).expand(-1, 3, height, width)
+        # Compute scores in a single batched operation
+        scores = self._compute_batch_scores(masks, colors, target_image, current_image)
         
-        # Apply alpha blending in a single vectorized operation
-        result = current_expanded * (1 - masks_expanded * alpha_expanded) + rgb_expanded * masks_expanded * alpha_expanded
-        
-        return result
+        return scores, colors
     
-    def _update_velocities_and_positions(self, 
-                                        particles: List[Shape], 
-                                        particle_scores: List[float],
-                                        best_global_particle: Shape) -> List[Shape]:
+    def _compute_optimal_color(self, target_pixels, current_pixels, alpha_value):
         """
-        Update velocities and positions of particles in the swarm.
+        Compute the optimal color for a set of pixels.
         
         Args:
-            particles: List of shapes (particles)
-            particle_scores: Scores of each particle
-            best_global_particle: Best particle found so far
+            target_pixels: Target image pixels [3, N]
+            current_pixels: Current image pixels [3, N]
+            alpha_value: Alpha value (0-1)
             
         Returns:
-            List[Shape]: Updated particles
+            torch.Tensor: Optimal RGB color [3]
         """
-        # Find personal best for each particle
-        best_score_idx = np.argmin(particle_scores)
-        best_global_score = particle_scores[best_score_idx]
+        # Simple weighted average for optimal color
+        numerator = torch.sum(target_pixels - current_pixels * (1 - alpha_value), dim=1)
+        denominator = alpha_value * target_pixels.shape[1]
+        color = numerator / (denominator + 1e-6)
+        return torch.clamp(color, 0, 1)
+    
+    def _compute_batch_scores(self, masks, colors, target_image, current_image):
+        """
+        Compute scores for multiple shapes in parallel.
         
-        # If no velocities exist yet, initialize them
-        if len(self.velocities) == 0:
-            for i in range(len(particles)):
-                self.velocities[i] = []
-                
-        # Update each particle's velocity and position
-        new_particles = []
-        for i, particle in enumerate(particles):
-            # Initialize velocity if this is the first iteration
-            if i not in self.velocities or not self.velocities[i]:
-                # Initial velocity is just a small random mutation
-                self.velocities[i] = [particle.mutate(rate=0.1)]
+        Args:
+            masks: Shape masks [batch_size, height, width]
+            colors: List of color dictionaries
+            target_image: Target image tensor
+            current_image: Current image tensor
             
-            # Current velocity
-            velocity_shape = self.velocities[i][-1]
-            
-            # Randomly sample cognitive and social weights
-            cognitive_random = random.uniform(0, 1)
-            social_random = random.uniform(0, 1)
-            
-            # Create a new velocity by combining:
-            # 1. Inertia component (previous velocity)
-            # 2. Cognitive component (personal best)
-            # 3. Social component (global best)
-            
-            # For the cognitive component, we use the particle itself (as we don't store personal bests)
-            cognitive_component = particle.crossover(velocity_shape)
-            
-            # For the social component, we use the global best
-            social_component = best_global_particle.crossover(velocity_shape)
-            
-            # Combine the components to get a new velocity
-            # We simulate this by creating a shape that's influenced by all components
-            inertia_mutation = velocity_shape.mutate(rate=self.inertia_weight)
-            cognitive_mutation = cognitive_component.mutate(rate=self.cognitive_weight * cognitive_random)
-            social_mutation = social_component.mutate(rate=self.social_weight * social_random)
-            
-            # New velocity is a combination of these components (via crossover)
-            new_velocity = inertia_mutation.crossover(cognitive_mutation).crossover(social_mutation)
-            
-            # Update particle position (create a new particle with the new velocity)
-            new_particle = particle.crossover(new_velocity)
-            
-            # Store the new velocity for the next iteration
-            self.velocities[i].append(new_velocity)
-            # Keep only the most recent velocity to save memory
-            if len(self.velocities[i]) > 1:
-                self.velocities[i] = self.velocities[i][-1:]
-                
-            new_particles.append(new_particle)
+        Returns:
+            List[float]: Scores for each shape
+        """
+        batch_size = masks.shape[0]
         
-        return new_particles
+        # Pre-allocate tensors for candidates
+        candidates = torch.zeros((batch_size, *current_image.shape), 
+                                device=self.gpu.device, dtype=torch.float32)
+        
+        # Apply each mask with its color
+        for i in range(batch_size):
+            mask = masks[i]
+            color = colors[i]
+            
+            # Convert color to tensor
+            rgb = torch.tensor([color['r'], color['g'], color['b']], 
+                              device=self.gpu.device, dtype=torch.float32) / 255.0
+            alpha_value = color['a'] / 255.0
+            
+            # Apply mask with color to current image
+            for c in range(3):  # RGB channels
+                candidates[i, c] = current_image[c] * (1 - mask * alpha_value) + rgb[c] * mask * alpha_value
+        
+        # Compute MSE difference in a single batched operation
+        target_expanded = target_image.unsqueeze(0).expand(batch_size, -1, -1, -1)
+        mse = torch.mean((candidates - target_expanded) ** 2, dim=(1, 2, 3))
+        
+        # Convert to list
+        return mse.cpu().numpy().tolist()
     
     def find_best_shape(self, 
                        shape_type: int, 
@@ -305,7 +217,7 @@ class ParticleSwarmOptimizer:
                        current_image: torch.Tensor, 
                        alpha: int) -> Tuple[Shape, Dict[str, Any], float]:
         """
-        Find the best shape to add to the current image using PSO.
+        Find the best shape using a fast GPU-accelerated random search.
         
         Args:
             shape_type (int): Type of shape to find
@@ -318,50 +230,53 @@ class ParticleSwarmOptimizer:
         """
         start_time = time.time()
         
-        # Initialize swarm
-        particles = self._init_swarm(shape_type)
+        # Phase 1: Generate and evaluate random candidates
+        candidates = self._generate_candidates(shape_type, self.candidates)
+        scores, colors = self._evaluate_batch(candidates, target_image, current_image, alpha)
         
-        # Evaluate initial swarm
-        scores, colors = self._evaluate_batch(particles, target_image, current_image, alpha)
+        # Find the top K candidates
+        indices = np.argsort(scores)[:self.top_candidates]
+        best_candidates = [candidates[i] for i in indices]
+        best_scores = [scores[i] for i in indices]
+        best_colors = [colors[i] for i in indices]
         
-        # Find best particle
-        best_idx = np.argmin(scores)
-        best_particle = particles[best_idx]
-        best_color = colors[best_idx]
-        best_score = scores[best_idx]
+        best_idx = 0  # Best is the first one after sorting
+        best_shape = best_candidates[best_idx]
+        best_color = best_colors[best_idx]
+        best_score = best_scores[best_idx]
         
-        # Track if score improves
-        last_best_score = best_score
-        no_improvement_count = 0
-        max_no_improvement = 2  # Stop after 2 iterations without improvement
-        
-        # Main PSO loop
-        for iteration in range(self.iterations):
-            # Update velocities and positions
-            particles = self._update_velocities_and_positions(particles, scores, best_particle)
+        # Phase 2: Refine the top candidates with small mutations
+        for refinement in range(self.refinements):
+            # Generate mutations for each top candidate
+            refined_candidates = []
             
-            # Evaluate updated particles
-            scores, colors = self._evaluate_batch(particles, target_image, current_image, alpha)
+            for i, candidate in enumerate(best_candidates):
+                # Generate 10 mutations for each top candidate
+                mutations = [candidate.mutate(rate=0.1 / (refinement + 1)) for _ in range(10)]
+                refined_candidates.extend(mutations)
             
-            # Update best particle if found better
-            new_best_idx = np.argmin(scores)
-            new_best_score = scores[new_best_idx]
+            # Evaluate refined candidates
+            refined_scores, refined_colors = self._evaluate_batch(
+                refined_candidates, target_image, current_image, alpha
+            )
             
-            if new_best_score < best_score:
-                best_idx = new_best_idx
-                best_particle = particles[best_idx]
-                best_color = colors[best_idx]
-                best_score = new_best_score
-                no_improvement_count = 0
-            else:
-                no_improvement_count += 1
+            # Check if we found a better score
+            best_refined_idx = np.argmin(refined_scores)
+            if refined_scores[best_refined_idx] < best_score:
+                best_shape = refined_candidates[best_refined_idx]
+                best_color = refined_colors[best_refined_idx]
+                best_score = refined_scores[best_refined_idx]
                 
-            # Early stopping check
-            if no_improvement_count >= max_no_improvement:
-                print(f"Early stopping at iteration {iteration+1}/{self.iterations} - no improvement for {max_no_improvement} iterations")
-                break
+                # Sort and update best candidates
+                indices = np.argsort(refined_scores)[:self.top_candidates]
+                best_candidates = [refined_candidates[i] for i in indices]
+                best_scores = [refined_scores[i] for i in indices]
+                best_colors = [refined_colors[i] for i in indices]
+            else:
+                # If no improvement, reduce search space and try again with smaller mutations
+                pass
         
         elapsed = time.time() - start_time
-        print(f"Particle Swarm Optimization completed in {elapsed:.2f}s, best score: {best_score:.6f}")
+        print(f"Optimized search completed in {elapsed:.2f}s, best score: {best_score:.6f}")
         
-        return best_particle, best_color, best_score 
+        return best_shape, best_color, best_score 
