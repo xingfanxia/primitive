@@ -5,6 +5,7 @@ Simple example using py_primitive library.
 import os
 import sys
 import time
+import importlib.resources
 from pathlib import Path
 
 # Add parent directory to Python path for easy imports
@@ -16,14 +17,29 @@ def main():
     """Run a simple example of primitive image generation."""
     # Check if input image is provided
     if len(sys.argv) < 2:
-        print("Usage: python simple_example.py <input_image>")
-        print("Example: python simple_example.py ../examples/monalisa.jpg")
-        return 1
-    
-    input_path = sys.argv[1]
-    if not os.path.exists(input_path):
-        print(f"Error: Input file '{input_path}' not found.")
-        return 1
+        print("Usage: python -m py_primitive.examples.simple_example <input_image>")
+        print("Example: python -m py_primitive.examples.simple_example py_primitive/examples/images/monalisa.png")
+        
+        # If no image is provided, use a default image
+        try:
+            # Try to get the path to the included images
+            images_path = os.path.join(os.path.dirname(__file__), "images")
+            default_image = os.path.join(images_path, "monalisa.png")
+            
+            if not os.path.exists(default_image):
+                print(f"Error: Default image not found at {default_image}")
+                return 1
+                
+            print(f"No image provided, using default image: {default_image}")
+            input_path = default_image
+        except Exception as e:
+            print(f"Error loading default image: {e}")
+            return 1
+    else:
+        input_path = sys.argv[1]
+        if not os.path.exists(input_path):
+            print(f"Error: Input file '{input_path}' not found.")
+            return 1
     
     # Create output directory if it doesn't exist
     output_dir = Path("outputs")
