@@ -1,0 +1,69 @@
+---
+description: General Development Best Practices
+globs: *
+alwaysApply: true
+---
+
+# General Development Best Practice
+
+During your interaction with the user, collect important reusable knowledge about this project (e.g., library versions, model names, patterns, fixes) in the `.cursor/lessons` file. Pay special attention to any corrections you receive to avoid repeating mistakes. 
+
+Use the `.cursor/scratchpad.md` file to organize your thoughts and track progress for the current task:
+- Review existing content and clear old tasks if necessary
+- Explain the new task and plan the steps to complete it 
+- Use todo markers [X] to track progress and update them as you complete subtasks
+- Document any important decisions or findings during implementation
+
+If the scratchpad file doesn't exist, create it with appropriate sections for current task, implementation plan, and progress tracking.
+
+When working on any code in this project, follow these key principles:
+
+## Code Organization
+
+1. **Modular Architecture**: Create small, focused modules with clear responsibilities. Avoid files with mixed functionalities.
+
+2. **Directory Structure**: Group related files in dedicated directories with clear naming conventions.
+
+3. **Single Responsibility**: Each function and class should have a single, well-defined purpose.
+
+4. **Consistent Naming**: Use descriptive, consistent naming patterns for variables, functions, and files.
+
+## Configuration Management
+
+1. **Centralized Config**: Store configuration in dedicated files (config/*.ts) instead of hardcoding.
+
+2. **Environment Variables**: Document required environment variables and provide examples in .env.example.
+
+3. **Feature Flags**: Use feature flags for optional functionality with sensible defaults.
+
+4. **Command-Line Arguments**: Follow consistent patterns for CLI arguments, like '--no-[source]' to disable default sources.
+
+## Error Handling & Logging
+
+1. **Structured Logging**: Use Winston logger with appropriate log levels and structured metadata.
+
+2. **Progress Tracking**: Implement progress bars for long-running operations with clear step descriptions.
+
+3. **Graceful Failures**: Handle errors at appropriate levels and provide useful context in error messages.
+
+4. **Validation**: Validate external data before processing to prevent cascading errors.
+
+## Testing & Documentation
+
+1. **Test Coverage**: Create tests for critical functionality, especially for API integrations.
+
+2. **Documentation**: Add README files to explain directory purposes and key implementation details.
+
+3. **Type Safety**: Use TypeScript types consistently, especially for API response shapes.
+
+4. **Comments**: Document complex logic, business rules, and non-obvious implementations.
+
+## Performance & Security
+
+1. **Rate Limiting**: Implement appropriate rate limiting for external API calls.
+
+2. **Caching**: Cache expensive operations and external API responses.
+
+3. **Secret Management**: Never hardcode secrets; use environment variables and secure storage.
+
+4. **Input Validation**: Validate and sanitize all user inputs and external data. 
