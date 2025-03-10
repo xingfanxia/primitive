@@ -64,4 +64,4 @@ This project is licensed under the MIT License - see the LICENSE.md file for det
 
 ## Acknowledgements
 
-Original implementation by Michael Fogleman. Python GPU implementation by Primitive Team. 
+Original implementation by Michael Fogleman. Python GPU implementation by Xingfan Xia. 

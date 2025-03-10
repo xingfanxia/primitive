@@ -1,0 +1,17 @@
+README.md
+setup.py
+config/__init__.py
+config/config.py
+primitive/__init__.py
+primitive/gpu.py
+primitive/model.py
+primitive/optimizer.py
+primitive/shapes.py
+py_primitive.egg-info/PKG-INFO
+py_primitive.egg-info/SOURCES.txt
+py_primitive.egg-info/dependency_links.txt
+py_primitive.egg-info/entry_points.txt
+py_primitive.egg-info/requires.txt
+py_primitive.egg-info/top_level.txt
+tests/__init__.py
+tests/test_import.py

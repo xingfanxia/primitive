@@ -11,7 +11,8 @@ setup(
     author="Primitive Team",
     author_email="example@example.com",
     url="https://github.com/yourusername/primitive",
-    packages=find_packages(),
+    packages=find_packages(include=["py_primitive", "py_primitive.*"]),
+    package_data={"py_primitive": ["examples/*.py"]},
     entry_points={
         "console_scripts": [
             "py_primitive=py_primitive.main:main",
