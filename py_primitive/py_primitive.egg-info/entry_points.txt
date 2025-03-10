@@ -1,0 +1,2 @@
+[console_scripts]
+py_primitive = py_primitive.main:main
