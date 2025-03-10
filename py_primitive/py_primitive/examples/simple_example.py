@@ -49,14 +49,17 @@ def main():
     input_filename = os.path.basename(input_path)
     base_name = os.path.splitext(input_filename)[0]
     
-    # Configuration
+    # Configuration - optimized for speed with PSO
     config = {
-        "shape_count": 20,         # Reduced from 50 to 20 for faster testing
-        "shape_mode": 1,           # 1=triangle
-        "population_size": 20,     # Reduced from 30 to 20
-        "generations": 5,          # Reduced from 10 to 5
-        "input_resize": 128,       # Reduced from 256 to 128 for faster processing
-        "batch_size": 64,          # Increased batch size for better GPU utilization
+        "shape_count": 20,          # Number of shapes to generate
+        "shape_mode": 1,            # 1=triangle
+        "swarm_size": 150,          # Increase swarm size for better exploration
+        "iterations": 3,            # Fewer iterations for faster execution
+        "input_resize": 128,        # Smaller input size for faster processing
+        "batch_size": 150,          # Process entire swarm in one batch if possible
+        "cognitive_weight": 1.5,    # Weight for particle's own best position
+        "social_weight": 2.0,       # Weight for global best position
+        "inertia_weight": 0.6,      # Weight for current velocity
     }
     
     print(f"Processing {input_path}...")

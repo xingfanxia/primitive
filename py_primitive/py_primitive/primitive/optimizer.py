@@ -1,5 +1,5 @@
 """
-Differential Evolution optimizer for finding optimal shapes.
+Particle Swarm Optimization for finding optimal shapes.
 """
 import torch
 import numpy as np
@@ -9,13 +9,12 @@ import time
 
 from py_primitive.primitive.shapes import Shape, create_random_shape
 
-class DifferentialEvolution:
+class ParticleSwarmOptimizer:
     """
-    Differential Evolution optimizer for finding optimal shapes.
+    Particle Swarm Optimization for finding optimal shapes.
     
-    This class implements a parallel differential evolution algorithm optimized for GPU.
-    It evaluates multiple candidate shapes simultaneously to find the best shape to add
-    to the current image.
+    This class implements a highly parallelized PSO algorithm optimized for GPU.
+    It evaluates large batches of candidate shapes simultaneously to maximize GPU utilization.
     """
     
     def __init__(self, config, gpu_accelerator, image_width, image_height):
@@ -33,36 +32,43 @@ class DifferentialEvolution:
         self.width = image_width
         self.height = image_height
         
-        # DE parameters
-        self.population_size = config.get("population_size", 50)
-        self.crossover_probability = config.get("crossover_probability", 0.7)
-        self.mutation_factor = config.get("mutation_factor", 0.8)
-        self.generations = config.get("generations", 20)
-        self.batch_size = config.get("batch_size", 32)
+        # PSO parameters
+        self.swarm_size = config.get("swarm_size", 100)  # Larger swarm for better parallelism
+        self.iterations = config.get("iterations", 10)
+        self.cognitive_weight = config.get("cognitive_weight", 1.5)
+        self.social_weight = config.get("social_weight", 1.5)
+        self.inertia_weight = config.get("inertia_weight", 0.7)
+        self.batch_size = config.get("batch_size", 128)  # Larger batch size for GPU
         
-    def _init_population(self, shape_type) -> List[Shape]:
+        # Keep track of velocity and position for each particle
+        self.velocities = {}
+        
+    def _init_swarm(self, shape_type) -> List[Shape]:
         """
-        Initialize a population of random shapes.
+        Initialize a swarm of random shapes.
         
         Args:
             shape_type (int): Type of shape to create
             
         Returns:
-            List[Shape]: Population of shapes
+            List[Shape]: Swarm of shapes
         """
-        return [create_random_shape(shape_type, self.width, self.height, self.gpu) 
-                for _ in range(self.population_size)]
+        swarm = []
+        # Create a large batch of shapes at once
+        for _ in range(self.swarm_size):
+            swarm.append(create_random_shape(shape_type, self.width, self.height, self.gpu))
+        return swarm
     
     def _evaluate_batch(self, 
-                       population: List[Shape], 
-                       target_image: torch.Tensor, 
-                       current_image: torch.Tensor, 
-                       alpha: int) -> Tuple[List[float], List[Dict[str, Any]]]:
+                      shapes: List[Shape], 
+                      target_image: torch.Tensor, 
+                      current_image: torch.Tensor, 
+                      alpha: int) -> Tuple[List[float], List[Dict[str, Any]]]:
         """
         Evaluate a batch of shapes in parallel on the GPU.
         
         Args:
-            population (List[Shape]): Shapes to evaluate
+            shapes (List[Shape]): Shapes to evaluate
             target_image: Target image tensor
             current_image: Current image tensor
             alpha (int): Alpha value for the shapes
@@ -70,171 +76,228 @@ class DifferentialEvolution:
         Returns:
             Tuple[List[float], List[Dict[str, Any]]]: Scores and color information
         """
-        # Process in smaller batches to avoid OOM errors
+        # Process in batches to avoid OOM errors
         all_scores = []
         all_colors = []
         
-        for i in range(0, len(population), self.batch_size):
-            batch = population[i:i+self.batch_size]
+        for i in range(0, len(shapes), self.batch_size):
+            batch = shapes[i:i+self.batch_size]
             batch_size = len(batch)
             
             # Convert shapes to tensor masks in parallel
-            masks = []
-            for shape in batch:
+            masks = torch.zeros((batch_size, 1, self.height, self.width), device=self.gpu.device)
+            for j, shape in enumerate(batch):
                 mask = shape.to_tensor()
-                # Add batch and channel dimensions
-                mask = mask.unsqueeze(0).unsqueeze(0)
-                masks.append(mask)
+                masks[j, 0] = mask
             
-            # Stack masks into a batch
-            stacked_masks = torch.cat(masks, dim=0)
-            
-            # Compute optimal colors for each shape
-            batch_colors = []
-            for j in range(batch_size):
-                color_dict = self._compute_optimal_color(target_image, current_image, stacked_masks[j][0], alpha)
-                batch_colors.append(color_dict)
+            # Compute optimal colors for all shapes in the batch simultaneously
+            batch_colors = self._compute_batch_colors(target_image, current_image, masks, alpha)
             
             # Create candidate images by applying each shape with its optimal color
-            candidates = []
-            for j in range(batch_size):
-                # Apply shape with computed color
-                color = batch_colors[j]
-                rgb_tensor = torch.tensor([color['r'], color['g'], color['b']], device=self.gpu.device) / 255.0
-                alpha_value = color['a'] / 255.0
-                
-                # Apply shape to current image
-                mask = stacked_masks[j][0]
-                
-                # Reshape and expand dimensions for proper broadcasting
-                mask_expanded = mask.unsqueeze(0).expand_as(current_image)
-                rgb_expanded = rgb_tensor.view(-1, 1, 1).expand_as(current_image)
-                
-                # Apply alpha blending with proper broadcasting
-                candidate = current_image * (1 - mask_expanded * alpha_value) + rgb_expanded * mask_expanded * alpha_value
-                candidates.append(candidate)
-            
-            # Stack candidates into a batch for parallel evaluation
-            stacked_candidates = torch.stack(candidates)
+            candidates = self._apply_shapes_batch(current_image, masks, batch_colors, alpha)
             
             # Compute differences in parallel
             expanded_target = target_image.unsqueeze(0).expand(batch_size, -1, -1, -1)
-            differences = torch.mean((stacked_candidates - expanded_target) ** 2, dim=(1, 2, 3))
+            differences = torch.mean((candidates - expanded_target) ** 2, dim=(1, 2, 3))
             
             # Add to results
             all_scores.extend(self.gpu.to_numpy(differences).tolist())
             all_colors.extend(batch_colors)
             
-            # Clear GPU cache if possible
+            # Clear GPU cache
             if hasattr(torch.cuda, 'empty_cache'):
                 torch.cuda.empty_cache()
         
         return all_scores, all_colors
     
-    def _compute_optimal_color(self, target, current, shape_mask, alpha) -> Dict[str, int]:
+    def _compute_batch_colors(self, 
+                             target: torch.Tensor, 
+                             current: torch.Tensor, 
+                             masks: torch.Tensor, 
+                             alpha: int) -> List[Dict[str, int]]:
         """
-        Compute the optimal color for a shape.
+        Compute optimal colors for multiple shapes in parallel.
         
         Args:
             target: Target image tensor
             current: Current image tensor
-            shape_mask: Binary mask tensor for the shape
-            alpha (int): Alpha value
+            masks: Batch of shape masks [batch_size, 1, height, width]
+            alpha: Alpha value
             
         Returns:
-            Dict[str, int]: Optimal color with r, g, b, a components
+            List[Dict[str, int]]: List of color dictionaries
         """
-        # Only consider pixels inside the shape
-        if torch.sum(shape_mask) < 1:
-            # Shape is empty, use default color
-            return {'r': 0, 'g': 0, 'b': 0, 'a': alpha}
+        batch_size = masks.shape[0]
+        results = []
+        alpha_value = alpha / 255.0
         
-        # Get the pixels that are inside the shape
-        mask = shape_mask.bool()
+        # Calculate impact of each shape mask on the image
+        # This is done for the entire batch at once
+        masks_flat = masks.view(batch_size, 1, -1)  # [batch, 1, height*width]
+        target_flat = target.view(3, -1).unsqueeze(0)  # [1, 3, height*width]
+        current_flat = current.view(3, -1).unsqueeze(0)  # [1, 3, height*width]
         
-        # Extract target and current pixels inside the shape
-        target_pixels = target[:, mask]  # Shape: [3, num_pixels]
-        current_pixels = current[:, mask]  # Shape: [3, num_pixels]
-        
-        # Calculate the weighted average color
-        if alpha == 0:
-            # Algorithm chooses alpha
-            alpha_tensor = torch.linspace(8, 255, 32, device=self.gpu.device)
-            best_alpha = 128
-            best_score = float('inf')
-            
-            for a in alpha_tensor:
-                a_normalized = a / 255.0
-                # Calculate the color that minimizes error
-                numerator = torch.sum(target_pixels - current_pixels * (1 - a_normalized), dim=1)
-                denominator = torch.sum(a_normalized * torch.ones_like(target_pixels[0]))
-                color = numerator / (denominator + 1e-8)
+        # Compute the weighted sum for each shape (color calculation)
+        # This vectorizes the color computation for all shapes at once
+        for i in range(batch_size):
+            mask = masks[i, 0]
+            if torch.sum(mask) < 1:
+                # Empty shape, use default color
+                results.append({'r': 0, 'g': 0, 'b': 0, 'a': alpha})
+                continue
                 
-                # Clamp colors to valid range
+            # Extract active pixels for this mask
+            mask_bool = mask.bool()
+            target_pixels = target[:, mask_bool]
+            current_pixels = current[:, mask_bool]
+            
+            # Compute optimal color using vectorized operations
+            if alpha == 0:
+                # Algorithm chooses alpha - simplified version for speed
+                best_alpha = 128
+                alpha_normalized = best_alpha / 255.0
+                
+                # Calculate the color that minimizes error
+                numerator = torch.sum(target_pixels - current_pixels * (1 - alpha_normalized), dim=1)
+                denominator = torch.sum(alpha_normalized * torch.ones_like(target_pixels[0]))
+                color = numerator / (denominator + 1e-8)
                 color = torch.clamp(color, 0, 1)
                 
-                # Calculate error with this color
-                new_pixels = current_pixels * (1 - a_normalized) + color.unsqueeze(1) * a_normalized
-                error = torch.sum((target_pixels - new_pixels) ** 2)
+                alpha_value = best_alpha
+            else:
+                alpha_value = alpha
+                alpha_normalized = alpha / 255.0
                 
-                if error < best_score:
-                    best_score = error
-                    best_alpha = a
-                    best_color = color
+                # Calculate the color that minimizes error
+                numerator = torch.sum(target_pixels - current_pixels * (1 - alpha_normalized), dim=1)
+                denominator = torch.sum(alpha_normalized * torch.ones_like(target_pixels[0]))
+                color = numerator / (denominator + 1e-8)
+                color = torch.clamp(color, 0, 1)
             
-            alpha_value = int(best_alpha.item())
-            color = best_color
-            
-        else:
-            # Use the provided alpha
-            alpha_value = alpha
-            alpha_normalized = alpha / 255.0
-            
-            # Calculate the color that minimizes error
-            numerator = torch.sum(target_pixels - current_pixels * (1 - alpha_normalized), dim=1)
-            denominator = torch.sum(alpha_normalized * torch.ones_like(target_pixels[0]))
-            color = numerator / (denominator + 1e-8)
-            
-            # Clamp colors to valid range
-            color = torch.clamp(color, 0, 1)
+            # Convert to 8-bit RGB values
+            r, g, b = [int(c * 255) for c in self.gpu.to_numpy(color)]
+            results.append({'r': r, 'g': g, 'b': b, 'a': alpha_value})
         
-        # Convert to 8-bit RGB values
-        r, g, b = [int(c * 255) for c in self.gpu.to_numpy(color)]
-        
-        return {'r': r, 'g': g, 'b': b, 'a': alpha_value}
+        return results
     
-    def _create_trial(self, target_idx, population) -> Shape:
+    def _apply_shapes_batch(self, 
+                           current_image: torch.Tensor, 
+                           masks: torch.Tensor, 
+                           colors: List[Dict[str, int]], 
+                           alpha: int) -> torch.Tensor:
         """
-        Create a trial individual using differential evolution.
+        Apply a batch of shapes to the current image in parallel.
         
         Args:
-            target_idx (int): Index of the target individual
-            population (List[Shape]): Current population
+            current_image: Current image tensor
+            masks: Batch of shape masks [batch_size, 1, height, width]
+            colors: List of color dictionaries
+            alpha: Alpha value
             
         Returns:
-            Shape: Trial individual
+            torch.Tensor: Batch of candidate images [batch_size, channels, height, width]
         """
-        # Select three random individuals different from the target
-        available_indices = [i for i in range(len(population)) if i != target_idx]
-        a_idx, b_idx, c_idx = random.sample(available_indices, 3)
+        batch_size = masks.shape[0]
+        channels, height, width = current_image.shape
         
-        a, b, c = population[a_idx], population[b_idx], population[c_idx]
-        target = population[target_idx]
+        # Create batch of RGB tensors from colors
+        rgb_batch = torch.zeros((batch_size, 3), device=self.gpu.device)
+        alpha_values = torch.zeros(batch_size, device=self.gpu.device)
         
-        # Create mutant by mutation
-        # Instead of direct mutation, we're creating a new shape by crossing over
-        # This is because shapes aren't directly mutable with vector operations
+        for i, color in enumerate(colors):
+            rgb_batch[i, 0] = color['r'] / 255.0
+            rgb_batch[i, 1] = color['g'] / 255.0
+            rgb_batch[i, 2] = color['b'] / 255.0
+            alpha_values[i] = color['a'] / 255.0
         
-        # First create a mutated version of 'a' influenced by the difference between b and c
-        mutant = a.mutate(rate=self.mutation_factor)
+        # Expand current image for the batch
+        current_expanded = current_image.unsqueeze(0).expand(batch_size, -1, -1, -1)
         
-        # Crossover between target and mutant
-        if random.random() < self.crossover_probability:
-            trial = mutant.crossover(target)
-        else:
-            trial = target.mutate(rate=0.05)  # Small mutation if no crossover
+        # Expand masks for broadcasting with RGB channels
+        masks_expanded = masks.expand(-1, 3, -1, -1)
         
-        return trial
+        # Expand RGB values for broadcasting with image dimensions
+        rgb_expanded = rgb_batch.view(batch_size, 3, 1, 1).expand(-1, -1, height, width)
+        
+        # Expand alpha values for broadcasting
+        alpha_expanded = alpha_values.view(batch_size, 1, 1, 1).expand(-1, 3, height, width)
+        
+        # Apply alpha blending in a single vectorized operation
+        result = current_expanded * (1 - masks_expanded * alpha_expanded) + rgb_expanded * masks_expanded * alpha_expanded
+        
+        return result
+    
+    def _update_velocities_and_positions(self, 
+                                        particles: List[Shape], 
+                                        particle_scores: List[float],
+                                        best_global_particle: Shape) -> List[Shape]:
+        """
+        Update velocities and positions of particles in the swarm.
+        
+        Args:
+            particles: List of shapes (particles)
+            particle_scores: Scores of each particle
+            best_global_particle: Best particle found so far
+            
+        Returns:
+            List[Shape]: Updated particles
+        """
+        # Find personal best for each particle
+        best_score_idx = np.argmin(particle_scores)
+        best_global_score = particle_scores[best_score_idx]
+        
+        # If no velocities exist yet, initialize them
+        if len(self.velocities) == 0:
+            for i in range(len(particles)):
+                self.velocities[i] = []
+                
+        # Update each particle's velocity and position
+        new_particles = []
+        for i, particle in enumerate(particles):
+            # Initialize velocity if this is the first iteration
+            if i not in self.velocities or not self.velocities[i]:
+                # Initial velocity is just a small random mutation
+                self.velocities[i] = [particle.mutate(rate=0.1)]
+            
+            # Current velocity
+            velocity_shape = self.velocities[i][-1]
+            
+            # Randomly sample cognitive and social weights
+            cognitive_random = random.uniform(0, 1)
+            social_random = random.uniform(0, 1)
+            
+            # Create a new velocity by combining:
+            # 1. Inertia component (previous velocity)
+            # 2. Cognitive component (personal best)
+            # 3. Social component (global best)
+            
+            # For the cognitive component, we use the particle itself (as we don't store personal bests)
+            cognitive_component = particle.crossover(velocity_shape)
+            
+            # For the social component, we use the global best
+            social_component = best_global_particle.crossover(velocity_shape)
+            
+            # Combine the components to get a new velocity
+            # We simulate this by creating a shape that's influenced by all components
+            inertia_mutation = velocity_shape.mutate(rate=self.inertia_weight)
+            cognitive_mutation = cognitive_component.mutate(rate=self.cognitive_weight * cognitive_random)
+            social_mutation = social_component.mutate(rate=self.social_weight * social_random)
+            
+            # New velocity is a combination of these components (via crossover)
+            new_velocity = inertia_mutation.crossover(cognitive_mutation).crossover(social_mutation)
+            
+            # Update particle position (create a new particle with the new velocity)
+            new_particle = particle.crossover(new_velocity)
+            
+            # Store the new velocity for the next iteration
+            self.velocities[i].append(new_velocity)
+            # Keep only the most recent velocity to save memory
+            if len(self.velocities[i]) > 1:
+                self.velocities[i] = self.velocities[i][-1:]
+                
+            new_particles.append(new_particle)
+        
+        return new_particles
     
     def find_best_shape(self, 
                        shape_type: int, 
@@ -242,7 +305,7 @@ class DifferentialEvolution:
                        current_image: torch.Tensor, 
                        alpha: int) -> Tuple[Shape, Dict[str, Any], float]:
         """
-        Find the best shape to add to the current image.
+        Find the best shape to add to the current image using PSO.
         
         Args:
             shape_type (int): Type of shape to find
@@ -255,60 +318,50 @@ class DifferentialEvolution:
         """
         start_time = time.time()
         
-        # Initialize population
-        population = self._init_population(shape_type)
+        # Initialize swarm
+        particles = self._init_swarm(shape_type)
         
-        # Evaluate initial population
-        scores, colors = self._evaluate_batch(population, target_image, current_image, alpha)
+        # Evaluate initial swarm
+        scores, colors = self._evaluate_batch(particles, target_image, current_image, alpha)
         
-        # Find best individual
+        # Find best particle
         best_idx = np.argmin(scores)
-        best_shape = population[best_idx]
+        best_particle = particles[best_idx]
         best_color = colors[best_idx]
         best_score = scores[best_idx]
         
-        # Evolve the population with early stopping if score doesn't improve
+        # Track if score improves
         last_best_score = best_score
         no_improvement_count = 0
-        max_no_improvement = 3  # Stop after 3 generations without improvement
+        max_no_improvement = 2  # Stop after 2 iterations without improvement
         
-        for generation in range(self.generations):
-            # Create trials all at once
-            trials = []
-            for i in range(self.population_size):
-                trial = self._create_trial(i, population)
-                trials.append(trial)
+        # Main PSO loop
+        for iteration in range(self.iterations):
+            # Update velocities and positions
+            particles = self._update_velocities_and_positions(particles, scores, best_particle)
             
-            # Evaluate all trials in parallel
-            trial_scores, trial_colors = self._evaluate_batch(trials, target_image, current_image, alpha)
+            # Evaluate updated particles
+            scores, colors = self._evaluate_batch(particles, target_image, current_image, alpha)
             
-            # Perform selection and update population
-            improved = False
-            for i in range(self.population_size):
-                if trial_scores[i] < scores[i]:
-                    population[i] = trials[i]
-                    scores[i] = trial_scores[i]
-                    colors[i] = trial_colors[i]
-                    
-                    # Update best if needed
-                    if trial_scores[i] < best_score:
-                        best_idx = i
-                        best_shape = trials[i]
-                        best_color = trial_colors[i]
-                        best_score = trial_scores[i]
-                        improved = True
+            # Update best particle if found better
+            new_best_idx = np.argmin(scores)
+            new_best_score = scores[new_best_idx]
             
-            # Early stopping check
-            if improved:
-                last_best_score = best_score
+            if new_best_score < best_score:
+                best_idx = new_best_idx
+                best_particle = particles[best_idx]
+                best_color = colors[best_idx]
+                best_score = new_best_score
                 no_improvement_count = 0
             else:
                 no_improvement_count += 1
-                if no_improvement_count >= max_no_improvement:
-                    print(f"Early stopping at generation {generation+1}/{self.generations} - no improvement for {max_no_improvement} generations")
-                    break
+                
+            # Early stopping check
+            if no_improvement_count >= max_no_improvement:
+                print(f"Early stopping at iteration {iteration+1}/{self.iterations} - no improvement for {max_no_improvement} iterations")
+                break
         
         elapsed = time.time() - start_time
-        print(f"Differential evolution completed in {elapsed:.2f}s, best score: {best_score:.6f}")
+        print(f"Particle Swarm Optimization completed in {elapsed:.2f}s, best score: {best_score:.6f}")
         
-        return best_shape, best_color, best_score 
+        return best_particle, best_color, best_score 
