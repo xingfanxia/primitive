@@ -44,7 +44,7 @@ class PrimitiveModel:
         
         # Create current image with background color
         bg_color = self._compute_background_color()
-        self.current = torch.ones_like(self.target) * self.gpu.to_tensor(bg_color)
+        self.current = self._create_background_image(bg_color)
         
         # Create optimizer
         self.optimizer = DifferentialEvolution(
@@ -92,6 +92,22 @@ class PrimitiveModel:
         # Compute average color across all pixels
         avg_color = torch.mean(self.target, dim=(1, 2))
         return self.gpu.to_numpy(avg_color)
+    
+    def _create_background_image(self, bg_color):
+        """
+        Create a background image filled with the specified color.
+        
+        Args:
+            bg_color: Background color as RGB values in [0,1]
+            
+        Returns:
+            torch.Tensor: Background image tensor
+        """
+        # Convert the background color to a tensor with the correct shape for broadcasting
+        bg_tensor = self.gpu.to_tensor(bg_color).view(-1, 1, 1)
+        
+        # Create a tensor of the same shape as target filled with the background color
+        return bg_tensor.expand_as(self.target)
     
     def _compute_score(self):
         """
