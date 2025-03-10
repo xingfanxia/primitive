@@ -88,6 +88,28 @@ The GPU-accelerated implementation offers significantly improved performance ove
 - **Improved quality** due to testing more shape variations
 - **Better CPU utilization** during processing
 
+### Performance Optimizations
+
+This implementation includes several optimizations for speed:
+
+1. **Batched GPU Processing**: Shapes are evaluated in parallel batches for maximum GPU utilization
+2. **Early Stopping**: The differential evolution algorithm stops early when no improvements are detected
+3. **Tensor Caching**: Common tensor operations are cached to reduce redundant calculations
+4. **Memory Management**: Periodic GPU memory clearing prevents out-of-memory issues
+5. **Progress Tracking**: Real-time progress reporting with time estimates
+
+### Performance Tuning
+
+You can adjust these parameters for optimal performance on your hardware:
+
+```bash
+# Faster execution with smaller resolution and fewer shapes/generations
+py_primitive -i input.jpg -o output.png -n 50 -r 128 --population 20 --generations 5
+
+# Higher quality with more shapes and generations (slower)
+py_primitive -i input.jpg -o output.png -n 200 -r 256 --population 50 --generations 20
+```
+
 ## How It Works
 
 The core algorithm works as follows:
