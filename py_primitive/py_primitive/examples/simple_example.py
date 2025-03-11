@@ -88,7 +88,12 @@ def main(custom_config=None):
     
     # Use FPS from config if available, otherwise use default (5)
     fps = config.get("fps", 5)
-    model.save_animation(str(gif_path), frame_count=10, fps=fps)
+    
+    # Get input_resize value to use as max_size for animation
+    input_resize = config.get("input_resize", 256)
+    
+    # Use input_resize as max_size to ensure GIF isn't too large
+    model.save_animation(str(gif_path), frame_count=10, fps=fps, max_size=input_resize)
     
     print("Done!")
     print(f"Results saved to {output_dir} directory.")

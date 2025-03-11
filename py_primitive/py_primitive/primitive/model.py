@@ -396,7 +396,7 @@ class PrimitiveModel:
             f.write('\n'.join(lines))
         print(f"Saved SVG to {output_path}")
     
-    def save_animation(self, output_path, frame_count=None, fps=5):
+    def save_animation(self, output_path, frame_count=None, fps=5, max_size=512):
         """
         Save an animated GIF showing the progression.
         
@@ -404,6 +404,7 @@ class PrimitiveModel:
             output_path (str): Path to save the animation
             frame_count (int): Number of frames to include (None for all shapes)
             fps (int): Frames per second for the animation (default: 5)
+            max_size (int): Maximum size for the animation (default: 512px)
         """
         # Calculate duration in milliseconds from fps
         duration = int(1000 / fps)
@@ -500,26 +501,52 @@ class PrimitiveModel:
         
         # Determine output size - use original dimensions by default
         output_size = self.config.get("output_size", None)
+        
+        # Get input resize value to use as a reference for max size
+        input_resize = self.config.get("input_resize", 256)
+        
+        # Use the smaller of max_size or input_resize as our limit
+        size_limit = min(max_size, input_resize)
+        
         if output_size and output_size > 0:
             # User specifically requested an output size
             if isinstance(output_size, int):
                 # Single value - maintain aspect ratio
                 w, h = frames[0].size
                 if w > h:
-                    new_w = output_size
-                    new_h = int(h * output_size / w)
+                    new_w = min(output_size, size_limit)
+                    new_h = int(h * new_w / w)
                 else:
-                    new_h = output_size
-                    new_w = int(w * output_size / h)
+                    new_h = min(output_size, size_limit)
+                    new_w = int(w * new_h / h)
             elif isinstance(output_size, tuple) and len(output_size) == 2:
                 # Exact dimensions specified
-                new_w, new_h = output_size
+                orig_w, orig_h = output_size
+                # Scale down if needed
+                if max(orig_w, orig_h) > size_limit:
+                    scale = size_limit / max(orig_w, orig_h)
+                    new_w = int(orig_w * scale)
+                    new_h = int(orig_h * scale)
+                else:
+                    new_w, new_h = orig_w, orig_h
             else:
-                # Invalid format - use original dimensions
-                new_w, new_h = self.original_width, self.original_height
+                # Invalid format - use original dimensions but limit size
+                w, h = self.original_width, self.original_height
+                if max(w, h) > size_limit:
+                    scale = size_limit / max(w, h)
+                    new_w = int(w * scale)
+                    new_h = int(h * scale)
+                else:
+                    new_w, new_h = w, h
         else:
-            # No output size specified - use original dimensions
-            new_w, new_h = self.original_width, self.original_height
+            # No output size specified - use original dimensions but limit size
+            w, h = self.original_width, self.original_height
+            if max(w, h) > size_limit:
+                scale = size_limit / max(w, h)
+                new_w = int(w * scale)
+                new_h = int(h * scale)
+            else:
+                new_w, new_h = w, h
         
         # Resize frames if needed
         if (new_w, new_h) != frames[0].size:
@@ -534,9 +561,9 @@ class PrimitiveModel:
             output_path,
             save_all=True,
             append_images=frames[1:],
-            optimize=False,
+            optimize=True,  # Enable optimization to reduce file size
             duration=duration,
             loop=0
         )
         
-        print(f"Saved animation to {output_path} (FPS: {fps})") 
+        print(f"Saved animation to {output_path} (FPS: {fps}, Size: {new_w}x{new_h} pixels)") 
