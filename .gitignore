@@ -45,3 +45,7 @@ ENV/
 *.swo
 .DS_Store
 
+# Project specific
+.cursor/
+.specstory/
+
