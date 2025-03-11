@@ -4,6 +4,11 @@ outputs/
 *.svg
 *.gif
 
+# Exception for documentation images
+!docs/images/*.png
+!docs/images/*.gif
+!docs/images/*.svg
+
 # Python-specific
 __pycache__/
 *.py[cod]
