@@ -52,6 +52,14 @@ class PrimitiveModel:
         self.width = None
         self.height = None
         self.bg_color = None
+        
+        # Store original image dimensions before resizing
+        self.original_width = None
+        self.original_height = None
+        
+        # Get original dimensions before resizing
+        with Image.open(target_image_path) as img:
+            self.original_width, self.original_height = img.size
 
         # Initialize target image
         self._load_and_resize_image(target_image_path)
@@ -281,11 +289,42 @@ class PrimitiveModel:
         current_np = np.transpose(current_np, (1, 2, 0))
         current_np = np.clip(current_np * 255, 0, 255).astype(np.uint8)
         
+        # Create PIL image
+        img = Image.fromarray(current_np)
+        
+        # Determine output size - use original dimensions by default
+        output_size = self.config.get("output_size", None)
+        if output_size and output_size > 0:
+            # User specifically requested an output size
+            if isinstance(output_size, int):
+                # Single value - maintain aspect ratio
+                w, h = img.size
+                if w > h:
+                    new_w = output_size
+                    new_h = int(h * output_size / w)
+                else:
+                    new_h = output_size
+                    new_w = int(w * output_size / h)
+            elif isinstance(output_size, tuple) and len(output_size) == 2:
+                # Exact dimensions specified
+                new_w, new_h = output_size
+            else:
+                # Invalid format - use original dimensions
+                new_w, new_h = self.original_width, self.original_height
+        else:
+            # No output size specified - use original dimensions
+            new_w, new_h = self.original_width, self.original_height
+        
+        # Resize if needed
+        if (new_w, new_h) != img.size:
+            print(f"Resizing output image to {new_w}x{new_h} pixels...")
+            img = img.resize((new_w, new_h), Image.LANCZOS)
+        
         # Create output directory if it doesn't exist
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         
         # Save image
-        Image.fromarray(current_np).save(output_path)
+        img.save(output_path)
         print(f"Saved image to {output_path}")
     
     def save_svg(self, output_path):
@@ -295,20 +334,45 @@ class PrimitiveModel:
         Args:
             output_path (str): Path to save the SVG
         """
+        # Get dimensions with respect to potential output scaling
+        output_size = self.config.get("output_size", None)
+        
+        # Default to original dimensions
+        w, h = self.original_width, self.original_height
+        
+        # If output size is specified, use that instead
+        if output_size and output_size > 0:
+            if isinstance(output_size, int):
+                # Single value - maintain aspect ratio
+                if self.original_width > self.original_height:
+                    w = output_size
+                    h = int(self.original_height * output_size / self.original_width)
+                else:
+                    h = output_size
+                    w = int(self.original_width * output_size / self.original_height)
+            elif isinstance(output_size, tuple) and len(output_size) == 2:
+                w, h = output_size
+        
         # Create SVG content
-        bg_color = self._compute_background_color() * 255
-        bg_color = [int(c) for c in bg_color]
-        
-        # Start SVG
         lines = []
-        lines.append(f'<svg xmlns="http://www.w3.org/2000/svg" width="{self.width}" height="{self.height}">')
+        lines.append(f'<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="{w}" height="{h}" viewBox="0 0 {w} {h}">')
         
-        # Add background
-        lines.append(f'<rect width="{self.width}" height="{self.height}" fill="rgb({bg_color[0]},{bg_color[1]},{bg_color[2]})" />')
+        # Add background rectangle with the background color
+        bg_color = self.bg_color
+        r, g, b = [int(c * 255) for c in bg_color]
+        lines.append(f'  <rect width="{w}" height="{h}" fill="rgb({r}, {g}, {b})"/>')
         
-        # Add shapes
+        # Add shapes - scale them to match the output dimensions
+        scale_x = w / self.width
+        scale_y = h / self.height
+        
         for i, shape in enumerate(self.shape_history):
-            lines.append(shape.to_svg(self.color_history[i]))
+            # Get SVG for the shape and scale if needed
+            svg_shape = shape.to_svg(self.color_history[i])
+            if scale_x != 1 or scale_y != 1:
+                # Add transform attribute to scale the shape
+                svg_shape = svg_shape.replace('>', f' transform="scale({scale_x}, {scale_y})">', 1)
+            lines.append(svg_shape)
         
         # End SVG
         lines.append('</svg>')
@@ -316,24 +380,27 @@ class PrimitiveModel:
         # Create output directory if it doesn't exist
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         
-        # Write SVG file
+        # Write SVG to file
         with open(output_path, 'w') as f:
             f.write('\n'.join(lines))
-        
         print(f"Saved SVG to {output_path}")
     
-    def save_animation(self, output_path, frame_count=None):
+    def save_animation(self, output_path, frame_count=None, fps=5):
         """
         Save an animated GIF showing the progression.
         
         Args:
             output_path (str): Path to save the animation
             frame_count (int): Number of frames to include (None for all shapes)
+            fps (int): Frames per second for the animation (default: 5)
         """
         if frame_count is None:
             frame_count = len(self.shape_history)
         
         frame_count = min(frame_count, len(self.shape_history))
+        
+        # Calculate duration in milliseconds from fps
+        duration = int(1000 / fps)
         
         # Determine which shapes to render for each frame
         if frame_count <= 1:
@@ -397,8 +464,8 @@ class PrimitiveModel:
             save_all=True,
             append_images=frames[1:],
             optimize=False,
-            duration=100,
+            duration=duration,
             loop=0
         )
         
-        print(f"Saved animation to {output_path}") 
+        print(f"Saved animation to {output_path} (FPS: {fps})") 
