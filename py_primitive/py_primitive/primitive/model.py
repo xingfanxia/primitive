@@ -10,8 +10,7 @@ import os
 import math
 import random
 import imageio
-from svg.path import parse_path
-from svg.path.path import Line
+from svgpathtools import parse_path, Line
 from xml.dom import minidom
 from typing import List, Dict, Any, Tuple
 
@@ -37,10 +36,22 @@ class PrimitiveModel:
         self.config = get_config(config)
 
         # Initialize device and accelerator
-        self.use_gpu = self.config.get("use_gpu", True) and torch.cuda.is_available()
+        # Check for GPU availability (either CUDA or MPS)
+        gpu_available = (hasattr(torch, 'cuda') and torch.cuda.is_available()) or \
+                      (hasattr(torch.backends, 'mps') and torch.backends.mps.is_available())
+        
+        self.use_gpu = self.config.get("use_gpu", True) and gpu_available
+        
         if self.use_gpu:
-            self.accelerator = GPUAccelerator()
-            print("Using GPU for acceleration")
+            if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                print("Using GPU acceleration with MPS (Metal Performance Shaders)")
+                self.accelerator = GPUAccelerator()
+            elif hasattr(torch, 'cuda') and torch.cuda.is_available():
+                print("Using GPU acceleration with CUDA")
+                self.accelerator = GPUAccelerator()
+            else:
+                print("GPU requested but not available, falling back to CPU")
+                self.accelerator = CPUAccelerator()
         else:
             self.accelerator = CPUAccelerator()
             print("Using CPU for computation")
@@ -394,20 +405,44 @@ class PrimitiveModel:
             frame_count (int): Number of frames to include (None for all shapes)
             fps (int): Frames per second for the animation (default: 5)
         """
-        if frame_count is None:
-            frame_count = len(self.shape_history)
-        
-        frame_count = min(frame_count, len(self.shape_history))
-        
         # Calculate duration in milliseconds from fps
         duration = int(1000 / fps)
         
         # Determine which shapes to render for each frame
-        if frame_count <= 1:
-            indices = [len(self.shape_history)]
-        else:
-            indices = [int((i / (frame_count - 1)) * len(self.shape_history)) for i in range(frame_count)]
-            indices[-1] = len(self.shape_history)  # Ensure we include the final shape
+        total_shapes = len(self.shape_history)
+        
+        # Always start with background
+        indices = [0]
+        
+        # First 10 shapes: include every shape
+        end_idx = min(10, total_shapes)
+        indices.extend(range(1, end_idx + 1))
+        
+        if total_shapes > 10:
+            # Shapes 11-30: every 2nd shape
+            start_idx = 11
+            end_idx = min(30, total_shapes)
+            indices.extend(range(start_idx, end_idx + 1, 2))
+            
+            if total_shapes > 30:
+                # Shapes 31-50: every 3rd shape
+                start_idx = 31
+                end_idx = min(50, total_shapes)
+                indices.extend(range(start_idx, end_idx + 1, 3))
+                
+                if total_shapes > 50:
+                    # Remaining shapes: every 5th shape
+                    start_idx = 51
+                    indices.extend(range(start_idx, total_shapes + 1, 5))
+        
+        # Always ensure we include the final shape
+        if total_shapes not in indices:
+            indices.append(total_shapes)
+        
+        # Ensure indices are unique and sorted
+        indices = sorted(list(set(indices)))
+        
+        print(f"Creating animation with {len(indices)} frames...")
         
         # Render frames
         frames = []
@@ -416,15 +451,18 @@ class PrimitiveModel:
         bg_color = self._compute_background_color()
         current = self._create_background_image(bg_color)
         
-        # First frame is just the background
+        # Convert background to PIL image
         current_np = self.accelerator.to_numpy(current)
         current_np = np.transpose(current_np, (1, 2, 0))
         current_np = np.clip(current_np * 255, 0, 255).astype(np.uint8)
         frames.append(Image.fromarray(current_np))
         
+        # Track the last rendered index to avoid duplicating work
+        last_rendered_idx = 0
+        
         # Add shapes progressively
-        for idx in indices:
-            if idx == 0:
+        for idx in sorted(indices)[1:]:  # Skip 0 as we already rendered the background
+            if idx <= last_rendered_idx:
                 continue
                 
             # Reset to background
@@ -454,9 +492,42 @@ class PrimitiveModel:
             current_np = np.transpose(current_np, (1, 2, 0))
             current_np = np.clip(current_np * 255, 0, 255).astype(np.uint8)
             frames.append(Image.fromarray(current_np))
+            
+            last_rendered_idx = idx
         
         # Create output directory if it doesn't exist
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        
+        # Determine output size - use original dimensions by default
+        output_size = self.config.get("output_size", None)
+        if output_size and output_size > 0:
+            # User specifically requested an output size
+            if isinstance(output_size, int):
+                # Single value - maintain aspect ratio
+                w, h = frames[0].size
+                if w > h:
+                    new_w = output_size
+                    new_h = int(h * output_size / w)
+                else:
+                    new_h = output_size
+                    new_w = int(w * output_size / h)
+            elif isinstance(output_size, tuple) and len(output_size) == 2:
+                # Exact dimensions specified
+                new_w, new_h = output_size
+            else:
+                # Invalid format - use original dimensions
+                new_w, new_h = self.original_width, self.original_height
+        else:
+            # No output size specified - use original dimensions
+            new_w, new_h = self.original_width, self.original_height
+        
+        # Resize frames if needed
+        if (new_w, new_h) != frames[0].size:
+            print(f"Resizing animation frames to {new_w}x{new_h} pixels...")
+            resized_frames = []
+            for frame in frames:
+                resized_frames.append(frame.resize((new_w, new_h), Image.LANCZOS))
+            frames = resized_frames
         
         # Save animation
         frames[0].save(
