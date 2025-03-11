@@ -3,7 +3,7 @@
 Transform photos into stunning geometric art using triangles, rectangles, and other primitive shapes.
 
 <p align="center">
-  <img src="docs/images/picasso.gif" width="300" alt="Primitive art animation example">
+  <img src="docs/images/monalisa.gif" width="300" alt="Primitive art animation example">
 </p>
 
 **Primitive Pictures** is an algorithmic art generator that recreates images using only simple geometric shapes. It works by iteratively adding one shape at a time, intelligently selecting each new shape to best improve the overall approximation of the target image.
