@@ -7,7 +7,7 @@ Reproducing images with geometric primitives, accelerated by GPU on M-series Mac
 This is a Python reimplementation of the [original Primitive project](https://github.com/fogleman/primitive) by Michael Fogleman, with significant enhancements:
 
 1. **GPU Acceleration**: Uses PyTorch with Metal Performance Shaders (MPS) for GPU acceleration on M-series Macs
-2. **Differential Evolution**: Replaces hill climbing with parallel differential evolution for better optimization
+2. **Optimized Shape Search**: Uses advanced optimization algorithms for better shape finding
 3. **Batch Processing**: Evaluates many shapes simultaneously in parallel on the GPU
 4. **Python Ecosystem**: Takes advantage of the Python ecosystem for image processing and visualization
 
@@ -40,6 +40,20 @@ pip install -e py_primitive
 py_primitive -i input.jpg -o output.png -n 100 -m 1
 ```
 
+### Quick Start with run_example.py
+
+For convenience, you can use the wrapper script that has some sensible defaults:
+
+```bash
+python run_example.py [input_image] [--size SIZE] [--shapes SHAPES] [--fps FPS]
+```
+
+This script will:
+- Use the default Mona Lisa image if none is provided
+- Auto-detect and preserve original image dimensions by default
+- Generate triangles (the most effective primitive shape)
+- Save outputs to the `/outputs` directory
+
 ### Parameters
 
 | Flag | Default | Description |
@@ -47,15 +61,16 @@ py_primitive -i input.jpg -o output.png -n 100 -m 1
 | `-i, --input` | n/a | input file (required) |
 | `-o, --output` | n/a | output file (required, can be specified multiple times) |
 | `-n, --num` | n/a | number of shapes (required) |
-| `-m, --mode` | 1 | 0=combo, 1=triangle, 2=rect, 3=ellipse, 4=circle, 5=rotatedrect |
+| `-m, --mode` | 1 | 0=combo, 1=triangle, 2=rectangle, 3=ellipse, 4=circle, 5=rotated_rectangle |
 | `-a, --alpha` | 128 | alpha value (0-255, use 0 to let algorithm choose) |
 | `-r, --resize` | 256 | resize input image to this size before processing |
 | `-s, --size` | 1024 | output image size |
 | `-j, --workers` | 0 | number of parallel workers (default uses all cores) |
 | `--no-gpu` | false | disable GPU acceleration |
-| `--population` | 50 | population size for differential evolution |
-| `--generations` | 20 | number of generations for differential evolution |
+| `--population` | 50 | population size for optimization algorithm |
+| `--generations` | 20 | number of generations for optimization algorithm |
 | `--frames` | 0 | number of frames for animation (0 = all shapes) |
+| `--fps` | 5 | frames per second for animation playback |
 | `-v, --verbose` | false | enable verbose output |
 
 ### Output Formats
@@ -78,7 +93,26 @@ py_primitive -i input.jpg -o animation.gif -n 100 --frames 50
 
 # Use ellipses with higher population and generations for better results
 py_primitive -i input.jpg -o output.png -n 50 -m 3 --population 100 --generations 30
+
+# Create a slower animation with 3 FPS
+py_primitive -i input.jpg -o animation.gif -n 100 --frames 50 --fps 3
 ```
+
+## Shape Types
+
+The following shape types are supported:
+
+1. **Triangle (mode 1)**: Three-point polygons, excellent for most image approximations
+2. **Rectangle (mode 2)**: Axis-aligned rectangles
+3. **Ellipse (mode 3)**: Axis-aligned ellipses
+4. **Circle (mode 4)**: Perfect circles
+5. **Rotated Rectangle (mode 5)**: Rectangles with arbitrary rotation
+
+Each shape type offers different characteristics:
+- Triangles provide excellent coverage and detail with minimal shapes
+- Rectangles work well for architectural images with straight lines
+- Ellipses and circles excel at organic forms and portraits
+- Rotated rectangles can capture diagonal features effectively
 
 ## Performance
 
@@ -93,7 +127,7 @@ The GPU-accelerated implementation offers significantly improved performance ove
 This implementation includes several optimizations for speed:
 
 1. **Batched GPU Processing**: Shapes are evaluated in parallel batches for maximum GPU utilization
-2. **Early Stopping**: The differential evolution algorithm stops early when no improvements are detected
+2. **Early Stopping**: The optimization algorithm stops early when no improvements are detected
 3. **Tensor Caching**: Common tensor operations are cached to reduce redundant calculations
 4. **Memory Management**: Periodic GPU memory clearing prevents out-of-memory issues
 5. **Progress Tracking**: Real-time progress reporting with time estimates
@@ -118,11 +152,16 @@ The core algorithm works as follows:
 2. For each iteration:
    - Initialize a population of random shapes
    - Evaluate each shape in parallel on the GPU
-   - Run differential evolution to find the optimal shape
+   - Run optimization to find the optimal shape
    - Add the best shape to the canvas
 3. Repeat until the desired number of shapes is reached
 
-The differential evolution algorithm is particularly well-suited for GPU acceleration as it evaluates many candidate shapes in parallel.
+## Animation Control
+
+When creating GIF animations, you can control:
+
+- **Frame Count**: Set with `--frames` (0 means one frame per shape)
+- **Playback Speed**: Set with `--fps` (default is 5 FPS for smooth but detailed viewing)
 
 ## Python API
 
@@ -140,7 +179,7 @@ model.run(100)
 # Save outputs
 model.save_image("output.png")
 model.save_svg("output.svg")
-model.save_animation("animation.gif", frame_count=20)
+model.save_animation("animation.gif", frame_count=20, fps=5)
 ```
 
 ## License

@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from py_primitive.primitive.model import PrimitiveModel
 
-def main():
+def main(custom_config=None):
     """Run a simple example of primitive image generation."""
     # Check if input image is provided
     if len(sys.argv) < 2:
@@ -49,18 +49,21 @@ def main():
     input_filename = os.path.basename(input_path)
     base_name = os.path.splitext(input_filename)[0]
     
-    # Configuration - optimized for speed with PSO
-    config = {
-        "shape_count": 20,          # Number of shapes to generate
-        "shape_mode": 1,            # 1=triangle
-        "swarm_size": 150,          # Increase swarm size for better exploration
-        "iterations": 3,            # Fewer iterations for faster execution
-        "input_resize": 128,        # Smaller input size for faster processing
-        "batch_size": 150,          # Process entire swarm in one batch if possible
-        "cognitive_weight": 1.5,    # Weight for particle's own best position
-        "social_weight": 2.0,       # Weight for global best position
-        "inertia_weight": 0.6,      # Weight for current velocity
-    }
+    # Configuration - optimized for speed with the new randomized search optimizer
+    if custom_config:
+        config = custom_config
+        print(f"Using custom configuration with output size: {config.get('output_size', 'default')}px")
+    else:
+        config = {
+            "shape_count": 100,          # Number of shapes to generate
+            "shape_mode": 1,             # 1=triangle
+            "input_resize": 256,         # Input size for processing
+            "output_size": 1024,         # Output resolution
+            "candidates": 75,            # Number of initial random candidates
+            "refinements": 5,            # Number of refinement steps
+            "top_candidates": 3,         # Number of top candidates to refine
+            "batch_size": 75,            # Process in batches
+        }
     
     print(f"Processing {input_path}...")
     
@@ -70,8 +73,9 @@ def main():
     print(f"Model initialized in {time.time() - start_time:.2f}s")
     
     # Run the algorithm
-    print(f"Generating {config['shape_count']} shapes...")
-    model.run()
+    shape_count = config.get("shape_count", 100)
+    print(f"Generating {shape_count} shapes...")
+    model.run(num_shapes=shape_count)
     
     # Save outputs
     png_path = output_dir / f"{base_name}.png"
@@ -81,7 +85,10 @@ def main():
     print("Saving outputs...")
     model.save_image(str(png_path))
     model.save_svg(str(svg_path))
-    model.save_animation(str(gif_path), frame_count=10)
+    
+    # Use FPS from config if available, otherwise use default (5)
+    fps = config.get("fps", 5)
+    model.save_animation(str(gif_path), frame_count=10, fps=fps)
     
     print("Done!")
     print(f"Results saved to {output_dir} directory.")
