@@ -6,9 +6,9 @@ Reproducing images with geometric primitives using PyTorch.
 
 <table>
 <tr>
-    <td><img src="../outputs/picasso.png" width="180"></td>
-    <td><img src="../outputs/monalisa.png" width="180"></td>
-    <td><img src="../outputs/cat.png" width="180"></td>
+    <td><img src="../docs/images/picasso.png" width="180"></td>
+    <td><img src="../docs/images/monalisa.png" width="180"></td>
+    <td><img src="../docs/images/cat.png" width="180"></td>
 </tr>
 <tr>
     <td align="center">Picasso (200 triangles)</td>
@@ -24,9 +24,9 @@ Watch how images are progressively built up using geometric shapes:
 <div align="center">
   <table>
   <tr>
-    <td><img src="../outputs/picasso.gif" width="250" alt="Picasso primitive animation"></td>
-    <td><img src="../outputs/monalisa.gif" width="250" alt="Mona Lisa primitive animation"></td>
-    <td><img src="../outputs/cat.gif" width="250" alt="Cat primitive animation"></td>
+    <td><img src="../docs/images/picasso.gif" width="250" alt="Picasso primitive animation"></td>
+    <td><img src="../docs/images/monalisa.gif" width="250" alt="Mona Lisa primitive animation"></td>
+    <td><img src="../docs/images/cat.gif" width="250" alt="Cat primitive animation"></td>
   </tr>
   <tr>
     <td align="center">Picasso</td>

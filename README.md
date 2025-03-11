@@ -3,7 +3,7 @@
 Transform photos into stunning geometric art using triangles, rectangles, and other primitive shapes.
 
 <p align="center">
-  <img src="outputs/picasso.gif" width="300" alt="Primitive art animation example">
+  <img src="docs/images/picasso.gif" width="300" alt="Primitive art animation example">
 </p>
 
 **Primitive Pictures** is an algorithmic art generator that recreates images using only simple geometric shapes. It works by iteratively adding one shape at a time, intelligently selecting each new shape to best improve the overall approximation of the target image.
@@ -13,9 +13,9 @@ Transform photos into stunning geometric art using triangles, rectangles, and ot
 <div align="center">
   <table>
   <tr>
-    <td><img src="outputs/picasso.gif" width="220" alt="Picasso primitive animation"></td>
-    <td><img src="outputs/monalisa.gif" width="220" alt="Mona Lisa primitive animation"></td>
-    <td><img src="outputs/cat.gif" width="220" alt="Cat primitive animation"></td>
+    <td><img src="docs/images/picasso.gif" width="220" alt="Picasso primitive animation"></td>
+    <td><img src="docs/images/monalisa.gif" width="220" alt="Mona Lisa primitive animation"></td>
+    <td><img src="docs/images/cat.gif" width="220" alt="Cat primitive animation"></td>
   </tr>
   <tr>
     <td align="center">Picasso</td>
@@ -53,20 +53,20 @@ Here are some examples of the algorithm in action, showing how it transforms pho
   <tr>
     <td><b>Mona Lisa</b></td>
     <td><img src="py_primitive/py_primitive/examples/images/monalisa.png" width="180"></td>
-    <td><img src="outputs/monalisa.png" width="180"></td>
-    <td><img src="outputs/monalisa.gif" width="180"></td>
+    <td><img src="docs/images/monalisa.png" width="180"></td>
+    <td><img src="docs/images/monalisa.gif" width="180"></td>
   </tr>
   <tr>
     <td><b>Picasso</b></td>
     <td><img src="assets/picasso.jpg" width="180"></td>
-    <td><img src="outputs/picasso.png" width="180"></td>
-    <td><img src="outputs/picasso.gif" width="180"></td>
+    <td><img src="docs/images/picasso.png" width="180"></td>
+    <td><img src="docs/images/picasso.gif" width="180"></td>
   </tr>
   <tr>
     <td><b>Cat</b></td>
     <td><img src="assets/cat.jpg" width="180"></td>
-    <td><img src="outputs/cat.png" width="180"></td>
-    <td><img src="outputs/cat.gif" width="180"></td>
+    <td><img src="docs/images/cat.png" width="180"></td>
+    <td><img src="docs/images/cat.gif" width="180"></td>
   </tr>
   </table>
 </div>
