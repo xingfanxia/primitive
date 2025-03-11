@@ -31,7 +31,14 @@ class GPUAccelerator(Accelerator):
     
     def __init__(self):
         super().__init__()
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Check for available GPU backends
+        if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+        elif hasattr(torch, 'cuda') and torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        else:
+            self.device = torch.device("cpu")
+            print("Warning: No GPU backend available, using CPU")
     
     def to_tensor(self, array):
         """Convert numpy array to tensor on GPU"""
@@ -61,7 +68,7 @@ class GPUAccelerator(Accelerator):
     
     def _clear_cache(self):
         """Clear GPU cache"""
-        if torch.cuda.is_available():
+        if self.device.type == "cuda" and torch.cuda.is_available():
             torch.cuda.empty_cache()
 
 class CPUAccelerator(Accelerator):

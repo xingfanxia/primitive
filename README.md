@@ -47,8 +47,8 @@ Here are some examples of the algorithm in action, showing how it transforms pho
   <tr>
     <th>Example</th>
     <th>Original Image</th>
-    <th>Primitive Output (200~500 triangles)</th>
-    <th>Animation</th>
+    <th>Primitive Output</th>
+    <th>Process Animation</th>
   </tr>
   <tr>
     <td><b>Mona Lisa</b></td>

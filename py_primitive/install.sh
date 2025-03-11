@@ -36,6 +36,9 @@ try:
     import py_primitive.primitive.optimizer
     import py_primitive.primitive.model
     import py_primitive.main
+    import imageio
+    import svgpathtools
+    from svgpathtools import Path, Line
     print("All imports successful!")
     exit(0)
 except ImportError as e:
