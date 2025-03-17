@@ -3,7 +3,7 @@
 Convenience script to run the py_primitive example from the project root.
 
 Usage:
-    python run_example.py [input_image] [--size SIZE] [--shapes SHAPES] [--fps FPS] [--mode MODE] [--input-resize RESIZE] [--use-gpu]
+    python run_example.py [input_image] [--size SIZE] [--shapes SHAPES] [--fps FPS] [--mode MODE] [--input-resize RESIZE] [--use-gpu] [--include-svg]
     
 Options:
     --size SIZE               Set the output image size (default: original image size)
@@ -12,6 +12,7 @@ Options:
     --mode MODE               Set shape mode: 1=triangle, 2=rectangle, 3=ellipse, 4=circle, 5=rotated_rectangle (default: 1)
     --input-resize RESIZE     Set the size to resize input for processing (default: 256, higher=better quality but slower)
     --use-gpu                 Enable experimental GPU acceleration (may be slower than CPU)
+    --include-svg             Enable SVG output generation (disabled by default)
 """
 import os
 import sys
@@ -38,6 +39,8 @@ def main():
                         help='Input resize for processing (higher = better quality but slower) (default: 256)')
     parser.add_argument('--use-gpu', action='store_true',
                         help='Enable experimental GPU acceleration (may be slower than CPU)')
+    parser.add_argument('--include-svg', action='store_true',
+                        help='Enable SVG output generation (disabled by default)')
     args = parser.parse_args()
     
     # Get the directory of this script
@@ -91,6 +94,7 @@ def main():
     shape_mode_name = shape_modes.get(args.mode, "unknown")
     print(f"Using shape mode: {args.mode} ({shape_mode_name})")
     print(f"GPU acceleration: {'Enabled' if args.use_gpu else 'Disabled'}")
+    print(f"SVG generation: {'Enabled' if args.include_svg else 'Disabled'}")
     
     # Create a temporary configuration file with custom settings
     output_size_value = args.size
@@ -116,7 +120,8 @@ config = {{
     "top_candidates": 5,                   # Number of top candidates to refine
     "batch_size": 50,                      # Balanced batch size for GPU
     "fps": {args.fps},                     # Animation frames per second
-    "use_gpu": {str(args.use_gpu).lower().capitalize()} # Enable GPU acceleration
+    "use_gpu": {str(args.use_gpu).lower().capitalize()}, # Enable GPU acceleration
+    "generate_svg": {str(args.include_svg).lower().capitalize()} # Whether to generate SVG output
 }}
 """)
     
@@ -155,7 +160,9 @@ run_example(custom_config=custom_config.config)
         base_filename = os.path.splitext(os.path.basename(input_image))[0]
         
         # Define the file extensions we expect to be generated
-        expected_extensions = ['.png', '.svg', '.gif']
+        expected_extensions = ['.png', '.gif']
+        if args.include_svg:
+            expected_extensions.append('.svg')
         
         # Only copy files matching the base name
         for ext in expected_extensions:
@@ -190,13 +197,14 @@ run_example(custom_config=custom_config.config)
             except Exception as e:
                 print(f"Error checking GIF dimensions: {e}")
         
-        # Report SVG dimensions (can't easily open SVG files with PIL)
-        output_svg = os.path.join(root_outputs_dir, f"{base_filename}.svg")
-        if os.path.exists(output_svg):
-            if output_size_value is not None:
-                print(f"- SVG: {output_size_value}x{output_size_value} pixels (based on configuration)")
-            elif original_width is not None and original_height is not None:
-                print(f"- SVG: {original_width}x{original_height} pixels (based on original image)")
+        # Report SVG dimensions only if SVG generation is enabled
+        if args.include_svg:
+            output_svg = os.path.join(root_outputs_dir, f"{base_filename}.svg")
+            if os.path.exists(output_svg):
+                if output_size_value is not None:
+                    print(f"- SVG: {output_size_value}x{output_size_value} pixels (based on configuration)")
+                elif original_width is not None and original_height is not None:
+                    print(f"- SVG: {original_width}x{original_height} pixels (based on original image)")
                 
         print(f"\nNumber of shapes: {args.shapes}")
         if args.size is not None:
@@ -209,6 +217,7 @@ run_example(custom_config=custom_config.config)
         print(f"Shape mode: {args.mode} ({shape_mode_name})")
         print(f"Input resize: {args.input_resize}px (higher = better quality but slower)")
         print(f"GPU acceleration: {'Enabled' if args.use_gpu else 'Disabled'}")
+        print(f"SVG generation: {'Enabled' if args.include_svg else 'Disabled'}")
 
 if __name__ == "__main__":
     main() 

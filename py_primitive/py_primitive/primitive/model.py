@@ -382,7 +382,11 @@ class PrimitiveModel:
             svg_shape = shape.to_svg(self.color_history[i])
             if scale_x != 1 or scale_y != 1:
                 # Add transform attribute to scale the shape
-                svg_shape = svg_shape.replace('>', f' transform="scale({scale_x}, {scale_y})">', 1)
+                # Fix: Properly handle self-closing tags by checking if it ends with "/>"
+                if svg_shape.endswith('/>'):
+                    svg_shape = svg_shape[:-2] + f' transform="scale({scale_x}, {scale_y})" />'
+                else:
+                    svg_shape = svg_shape.replace('>', f' transform="scale({scale_x}, {scale_y})">', 1)
             lines.append(svg_shape)
         
         # End SVG

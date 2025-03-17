@@ -84,7 +84,11 @@ def main(custom_config=None):
     
     print("Saving outputs...")
     model.save_image(str(png_path))
-    model.save_svg(str(svg_path))
+    
+    # Only generate SVG if configuration allows it
+    generate_svg = config.get("generate_svg", True)
+    if generate_svg:
+        model.save_svg(str(svg_path))
     
     # Use FPS from config if available, otherwise use default (5)
     fps = config.get("fps", 5)
