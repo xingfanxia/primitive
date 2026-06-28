@@ -54,8 +54,19 @@ manifest_allows() {
           fail=1
         fi
         ;;
+    esac
+  done < <(runtime_dep_names "$toml")
+}
+
+# gpu_free <crate> — the layer must carry no GPU/GUI dependency (adapters are exempt).
+gpu_free() {
+  local crate="$1"
+  local toml="$ROOT/crates/$crate/Cargo.toml"
+  [ -f "$toml" ] || return 0
+  while IFS= read -r dep; do
+    case "$dep" in
       wgpu*|cubecl*|cudarc*|eframe*|egui*)
-        echo "BOUNDARY VIOLATION: crate '$crate' has GPU/GUI dep '$dep' (wrong layer)"
+        echo "BOUNDARY VIOLATION: crate '$crate' has GPU/GUI dep '$dep' (must be GPU-free)"
         fail=1
         ;;
     esac
@@ -76,10 +87,17 @@ src_forbids() {
 }
 
 # --- Manifest contract: allowed runtime dependencies per layer ---
-manifest_allows primitive-core            # core: zero primitive-* deps (pure)
-manifest_allows primitive-compute  primitive-core
-manifest_allows primitive-gpu-cpu  primitive-core primitive-compute
-manifest_allows primitive-engine   primitive-core primitive-compute   # NOT any adapter
+manifest_allows primitive-core              # core: zero primitive-* deps (pure)
+manifest_allows primitive-compute   primitive-core
+manifest_allows primitive-gpu-cpu   primitive-core primitive-compute
+manifest_allows primitive-gpu-cubecl primitive-core primitive-compute  # GPU adapter, same layer as CPU
+manifest_allows primitive-engine    primitive-core primitive-compute   # NOT any adapter
+
+# These layers must carry no GPU/GUI dependency (the GPU adapter legitimately does).
+gpu_free primitive-core
+gpu_free primitive-compute
+gpu_free primitive-gpu-cpu
+gpu_free primitive-engine
 
 # --- Source contract ---
 # core is pure: no GPU types, no cross-boundary use, no IO/clock in src.
@@ -91,6 +109,9 @@ src_forbids primitive-compute '^[[:space:]]*use[[:space:]]+primitive_(engine|gpu
 src_forbids primitive-compute '(wgpu|cubecl|cudarc)::' 'ports must be backend-agnostic'
 # engine must not import a concrete adapter (only the ports), via `use` OR fully-qualified path.
 src_forbids primitive-engine 'primitive_gpu_[a-z]+::' 'engine must not reference a concrete adapter'
+# adapters implement the ports; they must not depend on the engine (one-way: adapter ← engine).
+src_forbids primitive-gpu-cpu '^[[:space:]]*use[[:space:]]+primitive_engine' 'adapter must not import the engine'
+src_forbids primitive-gpu-cubecl '^[[:space:]]*use[[:space:]]+primitive_engine' 'adapter must not import the engine'
 
 if [ "$fail" -eq 0 ]; then
   echo "check-boundaries: OK — hexagonal import direction holds (core ← compute ← engine ← adapters)"

@@ -42,7 +42,31 @@ Gate evidence:
   (plan said pin 0.9.x). Re-confirm with `cargo search` at GPU-1/GUI-1 before pinning.
 - CPU adapter is single-threaded (exact oracle). Rayon multi-core is a deliberate later perf pass.
 
-## Next: GPU-1 → GPU-2 → GPU-3
+## GPU-1 — CubeCL → Metal pipeline — 🟡 IN PROGRESS (2026-06-27)
 
-Add `primitive-gpu-cubecl` implementing `ShapeSearch` via a fused `#[cube]` kernel (§6). Re-run
-the parity test (CPU oracle) on every GPU change. Prove ≥ 20× the CPU baseline above.
+`primitive-gpu-cubecl` crate added (cubecl 0.10, wgpu feature → Metal). Toolchain bumped to
+stable rustc 1.96 (cubecl 0.10 needs ≥1.92), pinned via `rust-toolchain.toml`.
+
+Done + verified:
+- **CubeCL→Metal device init / buffer upload / kernel launch / readback proven** — `vadd_i32`
+  `#[cube]` kernel runs on Metal and matches the CPU element-wise (test
+  `vadd_matches_cpu_on_metal`, green in `make verify`). This de-risks plan Risk #1
+  (cross-backend toolchain) + Risk #2 (Metal-from-Rust) — the highest-risk items.
+- Adapter wired into the boundary check (GPU deps allowed only in adapters; `gpu_free` enforced
+  for core/compute/engine/gpu-cpu).
+
+Remaining for GPU-1 (next focused step): the fused single-candidate `raster_score` kernel with
+**exact integer-SSE parity** vs the CPU oracle.
+
+> **Design note discovered during the spike — the rasterizer-determinism decision:** fogleman's
+> scanline rasterizer uses **f64** slope accumulation (`raster.rs`). Metal has **no f64**, so an
+> in-kernel rasterizer (f32) will diverge from the CPU on sub-pixel edges → breaks "exact"
+> parity. Two clean paths for GPU-1: (a) feed CPU-computed coverage (scanlines) into the scoring
+> kernel — rasterize on CPU, score on GPU, exact integer parity now; defer on-device raster to
+> GPU-2/3; or (b) define a deterministic integer/fixed-point rasterizer shared CPU↔GPU (the §6.6
+> determinism path) and regenerate the golden. Also validate **i64** support on Metal (the bbox
+> SSE delta can exceed i32 ~4e9) before relying on it in the kernel.
+
+## Next: finish GPU-1 fused kernel → GPU-2 → GPU-3
+
+Re-run the parity test (CPU oracle) on every GPU change. Prove ≥ 20× the CPU baseline above.

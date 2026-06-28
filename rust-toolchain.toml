@@ -1,0 +1,6 @@
+# CubeCL 0.10 (the GPU adapter) requires rustc >= 1.92. Pin the project to current stable so
+# every contributor + CI builds with a compatible toolchain. Requires rustup (the Homebrew
+# rustc shadows this — put ~/.cargo/bin ahead of /opt/homebrew/bin on PATH).
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

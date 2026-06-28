@@ -4,12 +4,13 @@ members = [
     "crates/primitive-core",
     "crates/primitive-compute",
     "crates/primitive-gpu-cpu",
+    "crates/primitive-gpu-cubecl",
     "crates/primitive-engine",
 ]
 
-# GPU + GUI crates (primitive-gpu-cubecl, primitive-app) are added at the GPU-1 / GUI-1
-# milestones. The CORE-1/CORE-2 slice is intentionally GPU-free so the pure reference
-# and the parity oracle land first (see docs/plan/primitive-2026-architecture.md §7).
+# The GUI crate (primitive-app) is added at the GUI-1 milestone. The GPU adapter
+# (primitive-gpu-cubecl) implements the same ShapeSearch port as the CPU oracle
+# (see docs/plan/primitive-2026-architecture.md §6/§7).
 
 [workspace.package]
 version = "0.1.0"
