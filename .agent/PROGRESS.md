@@ -42,31 +42,31 @@ Gate evidence:
   (plan said pin 0.9.x). Re-confirm with `cargo search` at GPU-1/GUI-1 before pinning.
 - CPU adapter is single-threaded (exact oracle). Rayon multi-core is a deliberate later perf pass.
 
-## GPU-1 — CubeCL → Metal pipeline — 🟡 IN PROGRESS (2026-06-27)
+## GPU-1 — CubeCL → Metal fused scoring kernel — ✅ DONE (2026-06-27)
 
-`primitive-gpu-cubecl` crate added (cubecl 0.10, wgpu feature → Metal). Toolchain bumped to
-stable rustc 1.96 (cubecl 0.10 needs ≥1.92), pinned via `rust-toolchain.toml`.
+`primitive-gpu-cubecl` crate (cubecl 0.10, wgpu → Metal). Toolchain bumped to stable rustc 1.96
+(cubecl 0.10 needs ≥1.92), pinned via `rust-toolchain.toml`.
 
-Done + verified:
-- **CubeCL→Metal device init / buffer upload / kernel launch / readback proven** — `vadd_i32`
-  `#[cube]` kernel runs on Metal and matches the CPU element-wise (test
-  `vadd_matches_cpu_on_metal`, green in `make verify`). This de-risks plan Risk #1
-  (cross-backend toolchain) + Risk #2 (Metal-from-Rust) — the highest-risk items.
-- Adapter wired into the boundary check (GPU deps allowed only in adapters; `gpu_free` enforced
-  for core/compute/engine/gpu-cpu).
+Gate evidence:
+- **CubeCL→Metal pipeline proven** (device init / upload / `#[cube]` launch / readback). De-risks
+  plan Risk #1 (cross-backend toolchain) + #2 (Metal-from-Rust), the highest-risk items.
+- **Fused `score_candidates` kernel — exact integer parity** (§7 GPU-1 gate): closed-form color +
+  16-bit premultiplied composite + integer delta-SSE, one thread/candidate. Test
+  `gpu_delta_sse_matches_cpu_exactly_for_1000_candidates`: **1000/1000 candidates bit-identical**
+  to `primitive_core::candidate_color_and_delta` (185,979 covered pixels scored on Metal). Green in
+  `make verify` (19 tests). Core exposes `delta_sse_partial` + `candidate_color_and_delta` as the
+  integer oracle (plan §6.6); `eval.rs` is the parity target.
 
-Remaining for GPU-1 (next focused step): the fused single-candidate `raster_score` kernel with
-**exact integer-SSE parity** vs the CPU oracle.
+Scope notes (carry-forward to GPU-2/3, by design, not a gap):
+- **Coverage is rasterized on the CPU and fed to the kernel.** fogleman's rasterizer uses f64 and
+  Metal has no f64, so on-device rasterization needs a deterministic integer rasterizer (§6.6) —
+  folded into GPU-2's on-device batch. GPU-1 isolates+proves the *scoring* math is exact on Metal.
+- **64×64 cap keeps every accumulator in i32/u32** (no overflow). Larger targets need i64 or a
+  hi/lo split — WGSL lacks i64, so this is a GPU-2 hardening item (validate on Metal first).
 
-> **Design note discovered during the spike — the rasterizer-determinism decision:** fogleman's
-> scanline rasterizer uses **f64** slope accumulation (`raster.rs`). Metal has **no f64**, so an
-> in-kernel rasterizer (f32) will diverge from the CPU on sub-pixel edges → breaks "exact"
-> parity. Two clean paths for GPU-1: (a) feed CPU-computed coverage (scanlines) into the scoring
-> kernel — rasterize on CPU, score on GPU, exact integer parity now; defer on-device raster to
-> GPU-2/3; or (b) define a deterministic integer/fixed-point rasterizer shared CPU↔GPU (the §6.6
-> determinism path) and regenerate the golden. Also validate **i64** support on Metal (the bbox
-> SSE delta can exceed i32 ~4e9) before relying on it in the kernel.
+## Next: GPU-2 → GPU-3
 
-## Next: finish GPU-1 fused kernel → GPU-2 → GPU-3
-
-Re-run the parity test (CPU oracle) on every GPU change. Prove ≥ 20× the CPU baseline above.
+GPU-2: batched B-candidate dispatch + `reduce_argmin` (winning index == CPU brute force), on-device
+deterministic rasterization, **≥ 20× the CORE-2 CPU candidates/sec baseline**. GPU-3: on-device
+(1+1)-ES + Philox + energy-map restarts; 1000-shape run ≥ 20× CPU, PSNR within 0.5 dB.
+Re-run the CPU-oracle parity test on every GPU change.

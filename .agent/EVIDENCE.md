@@ -38,3 +38,15 @@ end-to-end target: ≥ 20× shapes/sec ⇒ ≳ 460 shapes/sec, PSNR within 0.5 d
 
 > The CPU adapter is single-threaded by choice (exact parity oracle). A multi-core Rayon
 > baseline (later perf pass) would raise this anchor; re-measure and update here if adopted.
+
+## GPU-1 (2026-06-27)
+
+### CubeCL→Metal pipeline + fused scoring kernel — exact integer parity
+`crates/primitive-gpu-cubecl/tests/gpu_parity.rs`:
+```
+GPU vs CPU integer delta-SSE: 1000/1000 exact; 185979 covered pixels scored on Metal
+```
+The GPU `score_candidates` kernel (color + composite + integer delta-SSE) reproduces
+`primitive_core::candidate_color_and_delta` bit-for-bit for 1000 random triangle candidates on a
+64×64 target. Coverage rasterized on CPU (on-device raster → GPU-2). Green in `make verify`
+(19 tests, stable rustc 1.96).

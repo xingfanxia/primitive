@@ -35,6 +35,34 @@ pub fn difference_full(a: &Canvas, b: &Canvas) -> f64 {
     (sse_full(a, b) as f64 / n).sqrt() / 255.0
 }
 
+/// Signed integer SSE delta over `lines`: `Σ [(target-after)² − (target-before)²]` across all
+/// four channels. This is the exact integer core of [`difference_partial`] (before the float
+/// normalization) and the **determinism contract** the GPU kernel reproduces bit-for-bit
+/// (plan §6.6). `before`/`after` differ only inside `lines`.
+pub fn delta_sse_partial(
+    target: &Canvas,
+    before: &Canvas,
+    after: &Canvas,
+    lines: &[Scanline],
+) -> i64 {
+    let mut delta: i64 = 0;
+    for line in lines {
+        let mut i = target.pix_offset(line.x1 as usize, line.y as usize);
+        for _x in line.x1..=line.x2 {
+            for c in 0..4 {
+                let t = target.pix[i + c] as i32;
+                let b = before.pix[i + c] as i32;
+                let a = after.pix[i + c] as i32;
+                let d_after = t - a;
+                let d_before = t - b;
+                delta += (d_after * d_after - d_before * d_before) as i64;
+            }
+            i += 4;
+        }
+    }
+    delta
+}
+
 /// Incremental score after compositing a shape — `differencePartial`.
 ///
 /// `score` is the score of `before`; `before`/`after` differ only inside `lines`.

@@ -28,6 +28,7 @@ pub mod color;
 pub mod draw;
 pub mod energy_map;
 pub mod es;
+pub mod eval;
 pub mod model;
 pub mod optimizer;
 pub mod raster;
@@ -37,8 +38,9 @@ pub mod shape;
 
 pub use canvas::Canvas;
 pub use color::{compute_color, Color};
+pub use eval::candidate_color_and_delta;
 pub use model::{psnr_from_score, AddedShape, Model};
 pub use optimizer::{Ctx, SearchBudget, Searcher, State};
 pub use rng::Rng;
-pub use score::{difference_full, difference_partial, sse_full};
+pub use score::{delta_sse_partial, difference_full, difference_partial, sse_full};
 pub use shape::{Shape, ShapeType, Triangle};
