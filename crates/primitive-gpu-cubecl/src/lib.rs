@@ -17,6 +17,7 @@
 //! is GPU-2 hardening tracked in `.agent/PROGRESS.md`.
 
 mod kernels;
+mod search;
 
 use cubecl::prelude::*;
 use cubecl::server::Handle;
@@ -171,4 +172,98 @@ pub fn gpu_score_triangles(target: &Canvas, current: &Canvas, b: &TriangleBatch)
 /// GPU-2 one-shot: the winning candidate index via the on-device argmin.
 pub fn gpu_best_triangle(target: &Canvas, current: &Canvas, b: &TriangleBatch) -> i32 {
     GpuSession::new(target, current).best_triangle(b)
+}
+
+/// GPU-3 search configuration. Per shape, `workers` independent hill-climbs each run `age`
+/// mutate-and-keep-better iterations; the best across workers is committed.
+pub struct OptConfig {
+    pub workers: usize,
+    pub age: u32,
+    pub shapes: usize,
+    pub alpha: i32,
+    pub seed: u32,
+}
+
+/// GPU-3: run the whole search loop on-device and return the final reconstruction.
+///
+/// `target` and a `current` canvas (seeded to the target's average color) stay resident; each
+/// shape step launches `evolve` (parallel hill-climbs) → `argmin` (winner) → `commit` (composite
+/// the winner into `current`) with **no host sync** until the final readback. The reconstruction
+/// is the GPU's own optimizer output — compared to the CPU run by PSNR, not byte-parity.
+pub fn gpu_optimize(target: &Canvas, cfg: &OptConfig) -> Canvas {
+    let (ar, ag, ab) = target.average_color();
+    let current = Canvas::filled(target.w, target.h, ar, ag, ab);
+    let target_i32 = pix_i32(target);
+    let current_i32 = pix_i32(&current);
+    let n_pix = target_i32.len();
+    let w = target.w as i32;
+    let h = target.h as i32;
+
+    let client = WgpuRuntime::client(&Default::default());
+    let target_h = client.create_from_slice(bytemuck::cast_slice(&target_i32));
+    let current_h = client.create_from_slice(bytemuck::cast_slice(&current_i32));
+    let best_delta_h = client.empty(cfg.workers * core::mem::size_of::<i32>());
+    let best_tri_h = client.empty(cfg.workers * 6 * core::mem::size_of::<i32>());
+
+    for step in 0..cfg.shapes {
+        unsafe {
+            search::evolve::launch_unchecked::<WgpuRuntime>(
+                &client,
+                CubeCount::Static((cfg.workers as u32).div_ceil(THREADS), 1, 1),
+                CubeDim::new_1d(THREADS),
+                ArrayArg::from_raw_parts(target_h.clone(), n_pix),
+                ArrayArg::from_raw_parts(current_h.clone(), n_pix),
+                cfg.seed,
+                step as u32,
+                cfg.alpha,
+                w,
+                h,
+                cfg.age,
+                ArrayArg::from_raw_parts(best_delta_h.clone(), cfg.workers),
+                ArrayArg::from_raw_parts(best_tri_h.clone(), cfg.workers * 6),
+            );
+            // commit fuses the argmin (over best_delta) + composite — one launch, not two.
+            search::commit::launch_unchecked::<WgpuRuntime>(
+                &client,
+                CubeCount::Static(1, 1, 1),
+                CubeDim::new_1d(1),
+                ArrayArg::from_raw_parts(target_h.clone(), n_pix),
+                ArrayArg::from_raw_parts(current_h.clone(), n_pix),
+                ArrayArg::from_raw_parts(best_tri_h.clone(), cfg.workers * 6),
+                ArrayArg::from_raw_parts(best_delta_h.clone(), cfg.workers),
+                cfg.workers as i32,
+                cfg.alpha,
+                w,
+                h,
+            );
+        }
+    }
+
+    let bytes = client.read_one_unchecked(current_h);
+    let out: &[i32] = bytemuck::cast_slice(&bytes);
+    let pix: Vec<u8> = out.iter().map(|&v| v.clamp(0, 255) as u8).collect();
+    Canvas {
+        w: target.w,
+        h: target.h,
+        pix,
+    }
+}
+
+/// GPU-3 probe: `rand_below(seed, i, range)` for `i in 0..n` on the GPU — proves the kernel's
+/// counter-based RNG is bit-identical to `primitive_core::rand_below` (the determinism substrate).
+pub fn gpu_philox_fill(seed: u32, range: u32, n: usize) -> Vec<u32> {
+    let client = WgpuRuntime::client(&Default::default());
+    let out_h = client.empty(n * core::mem::size_of::<u32>());
+    let threads = THREADS;
+    unsafe {
+        kernels::philox_fill::launch_unchecked::<WgpuRuntime>(
+            &client,
+            CubeCount::Static((n as u32).div_ceil(threads), 1, 1),
+            CubeDim::new_1d(threads),
+            seed,
+            range,
+            ArrayArg::from_raw_parts(out_h.clone(), n),
+        );
+    }
+    bytemuck::cast_slice(&client.read_one_unchecked(out_h)).to_vec()
 }

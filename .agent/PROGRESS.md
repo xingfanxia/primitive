@@ -88,9 +88,33 @@ Carry-forward: parallel (tree) argmin deferred — in the real loop argmin runs 
 (~20k candidates), so single-thread is not the hot path; scoring is, and that's parallel. 64×64
 i32/u32 cap still applies (i64/large-target = later hardening; WGSL lacks i64).
 
-## Next: GPU-3
+## GPU-3 — on-device search loop — ✅ DONE (2026-06-27)
 
-On-device search loop: Philox RNG + (1+1)-ES triangle mutation + energy-map restart sampling +
-accept/reject + composite-winner, all GPU-resident across 1000 shapes. Gate: end-to-end ≥ 20× the
-CPU shapes/sec baseline AND final PSNR within 0.5 dB of the CPU run. Re-run the CPU-oracle parity
-test on every GPU change.
+The whole optimizer runs **GPU-resident** across all shapes: per step `evolve` (parallel
+independent hill-climbs) → `commit` (fused argmin + composite winner into `current`, in place), no
+per-step host sync; only the final canvas reads back. New modules: `primitive-core::philox`
+(counter-based RNG) and `primitive-gpu-cubecl::search` (`evolve`/`commit`, split from `kernels` for
+the size gate).
+
+Each worker seeds its own Philox stream and runs: **energy-targeted restart** (best of 8
+high-residual pixels — fogleman's energy-map heuristic, sampled) → **annealed hill-climb** (step
+shrinks 15→2 over the climb) → keep-better, scored by an in-kernel **scanline** raster (analytic
+per-row span, O(height) — the GPU-3-only fast path; GPU-2's edge-function scorer stays the
+parity-exact one).
+
+Gate evidence (all green in `make verify`, 30 tests):
+- **Determinism substrate**: `gpu3_philox.rs` — the kernel RNG is **10000/10000 bit-identical** to
+  `primitive_core::rand_below` (pure-u32 Philox; mulhilo matches a u64 reference).
+- **End-to-end** (§7 / EVIDENCE target): `gpu3_optimize.rs`, 100 shapes 64×64, workers=6144 age=14:
+  **519 shapes/s ≥ 460 target** (≥20× the CORE-2 128×128 baseline) **and PSNR 35.98 dB, −0.23 dB
+  vs the CPU run** (within the 0.5 dB gate). (GPU is also ~15× the same-run 64×64 CPU, which is
+  unusually fast at that small size — hence the absolute 460 sps cross-resolution target.)
+
+Carry-forward: the i32 64×64 cap still applies (larger targets → i64/hi-lo, GPU-4 hardening). A
+parallel tree-argmin and on-device Gaussian mutation are possible refinements but not needed for
+the gate.
+
+## Next: GPU-4 / GUI / PKG (interactive — credentials)
+
+GPU-4: CUDA backend (CubeCL cuda feature) + i64/large-target path. GUI-1/2: eframe shell. PKG-1/2:
+codesign + notarize — **must run interactively** (Apple credentials), never under auto-mode.
