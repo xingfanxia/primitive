@@ -8,31 +8,16 @@ use crate::kernels::{
 };
 use cubecl::prelude::*;
 
-/// Absolute RGB residual `|target-current|` at pixel `(px, py)` — the per-pixel error the
-/// energy-targeted restart steers toward (fogleman's high-error-region heuristic, plan §2).
+/// Squared RGB residual (SSE) at pixel `(px, py)` — the per-pixel error the energy-targeted restart
+/// steers toward. L2 (matches `core::energy_map::residual_map`) biases harder toward hot pixels than
+/// L1 did, so the best-of-N anchor lands nearer the real error peaks. Max 3·255² = 195075, fits i32.
 #[cube]
 fn residual(target: &Array<i32>, current: &Array<i32>, px: i32, py: i32, width: i32) -> i32 {
     let idx = ((py * width + px) * 4) as usize;
-    let mut s = 0i32;
     let dr = target[idx] - current[idx];
-    if dr < 0 {
-        s -= dr;
-    } else {
-        s += dr;
-    }
     let dg = target[idx + 1] - current[idx + 1];
-    if dg < 0 {
-        s -= dg;
-    } else {
-        s += dg;
-    }
     let db = target[idx + 2] - current[idx + 2];
-    if db < 0 {
-        s -= db;
-    } else {
-        s += db;
-    }
-    s
+    dr * dr + dg * dg + db * db
 }
 
 /// GPU-3: composite the step-winning triangle into `current` in place, on-device. Reads the

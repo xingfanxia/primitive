@@ -83,14 +83,14 @@ worker runs a reproducible stream from its indices alone.
 ```
 GPU-3 end-to-end (100 shapes, 64×64, workers=10240 age=9):
   CPU 36.22 dB @ 32.7 shapes/s
-  GPU 36.02 dB @ 509.3 shapes/s  (target ≥ 460)
-  PSNR gap -0.19 dB
+  GPU 35.97 dB @ 519.3 shapes/s  (target ≥ 460)
+  PSNR gap -0.24 dB
 ```
-The full loop (Philox + energy-targeted + self-adaptive 1/5-rule parallel hill-climb + fused
-argmin/commit) runs GPU-resident across all shapes. **509 shapes/s ≥ 460** (the documented ≥20×
-CORE-2-baseline target) **and −0.19 dB** vs the CPU reference (within the 0.5 dB gate). Green in
-`make verify` (30 tests). The self-adaptive step (Rechenberg 1/5 rule) replaced the hand-tuned anneal
-and lets a shallower, more-parallel config (10240×9) hold quality — see the sweep below.
+The full loop (Philox + L2-residual energy-targeted restart + self-adaptive 1/5-rule parallel
+hill-climb + fused argmin/commit) runs GPU-resident across all shapes. **519 shapes/s ≥ 460** (the
+documented ≥20× CORE-2-baseline target) **and −0.24 dB** vs the CPU reference (within the 0.5 dB gate).
+Green in `make verify` (30 tests). The self-adaptive step (Rechenberg 1/5 rule) replaced the hand-tuned
+anneal and lets a shallower, more-parallel config (10240×9) hold quality — see the sweep below.
 
 > Why 460 sps, not 20× the same-run CPU: the GPU is i32-capped to 64×64, where the CPU is unusually
 > fast (~33 sps). The established CORE-2 baseline is 128×128 (~23 sps); 20× that ⇒ 460 sps is the
