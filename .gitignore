@@ -9,6 +9,13 @@ outputs/
 !docs/images/*.gif
 !docs/images/*.svg
 
+# Exception for committed test fixtures (golden images, parity references)
+!crates/**/tests/fixtures/
+!crates/**/tests/fixtures/**
+
+# Rust build artifacts (Cargo.lock IS committed — see plan: pin + lock)
+/target/
+
 # Python-specific
 __pycache__/
 *.py[cod]

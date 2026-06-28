@@ -1,0 +1,16 @@
+[package]
+name = "primitive-gpu-cpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "CPU/Rayon adapter implementing the ShapeSearch port via primitive-core's reference search. The permanent parity oracle and the graceful-degradation fallback when no GPU is found."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+primitive-core = { path = "../primitive-core" }
+primitive-compute = { path = "../primitive-compute" }
+# Rayon multi-core parallelism is a deliberate later perf pass: CORE-2 keeps this adapter
+# single-threaded so it is a byte-exact parity oracle for the CORE-1 golden.

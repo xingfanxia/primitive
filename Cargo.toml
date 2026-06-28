@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/primitive-core",
+    "crates/primitive-compute",
+    "crates/primitive-gpu-cpu",
+    "crates/primitive-engine",
+]
+
+# GPU + GUI crates (primitive-gpu-cubecl, primitive-app) are added at the GPU-1 / GUI-1
+# milestones. The CORE-1/CORE-2 slice is intentionally GPU-free so the pure reference
+# and the parity oracle land first (see docs/plan/primitive-2026-architecture.md §7).
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.85"
+
+[workspace.dependencies]
+# Pinned deliberately; re-checked latest 2026-06-27 (cargo search). See plan §Standing rules.
+rayon = "1.12"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
