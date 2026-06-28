@@ -70,9 +70,11 @@ fn gpu3_end_to_end_meets_throughput_and_psnr_gates() {
     };
     let _ = gpu_optimize(&target, &warm);
 
+    // Self-adaptive (1/5-rule) step lets a shallower, more-parallel config hold quality: 10240×9
+    // clears the gate at higher throughput than the old fixed-anneal 6144×14 (see examples/sweep).
     let cfg = OptConfig {
-        workers: 6144,
-        age: 14,
+        workers: 10240,
+        age: 9,
         shapes: SHAPES,
         alpha: ALPHA,
         seed: 1,

@@ -81,15 +81,42 @@ worker runs a reproducible stream from its indices alone.
 
 ### End-to-end on-device search — `crates/primitive-gpu-cubecl/tests/gpu3_optimize.rs`
 ```
-GPU-3 end-to-end (100 shapes, 64×64, workers=6144 age=14):
-  CPU 36.22 dB @ 33.1 shapes/s
-  GPU 35.98 dB @ 519.9 shapes/s  (target ≥ 460)
-  PSNR gap -0.23 dB
+GPU-3 end-to-end (100 shapes, 64×64, workers=10240 age=9):
+  CPU 36.22 dB @ 32.7 shapes/s
+  GPU 36.02 dB @ 509.3 shapes/s  (target ≥ 460)
+  PSNR gap -0.19 dB
 ```
-The full loop (Philox + energy-targeted + annealed parallel hill-climb + fused argmin/commit) runs
-GPU-resident across all shapes. **519 shapes/s ≥ 460** (the documented ≥20× CORE-2-baseline target)
-**and −0.23 dB** vs the CPU reference (within the 0.5 dB gate). Green in `make verify` (30 tests).
+The full loop (Philox + energy-targeted + self-adaptive 1/5-rule parallel hill-climb + fused
+argmin/commit) runs GPU-resident across all shapes. **509 shapes/s ≥ 460** (the documented ≥20×
+CORE-2-baseline target) **and −0.19 dB** vs the CPU reference (within the 0.5 dB gate). Green in
+`make verify` (30 tests). The self-adaptive step (Rechenberg 1/5 rule) replaced the hand-tuned anneal
+and lets a shallower, more-parallel config (10240×9) hold quality — see the sweep below.
 
 > Why 460 sps, not 20× the same-run CPU: the GPU is i32-capped to 64×64, where the CPU is unusually
 > fast (~33 sps). The established CORE-2 baseline is 128×128 (~23 sps); 20× that ⇒ 460 sps is the
 > stable cross-resolution target recorded above. GPU-2 already proved 43.9× at the candidate level.
+
+### fogleman-vs-GPU comparison + size scaling (2026-06-28)
+
+`go_primitive/primitive/bench_test.go` (fogleman Go, timed in-process, best of 3) + `examples/sweep.rs`
+(our GPU). Matched synthetic target, triangle a=128, 100 shapes, identical n=1000/age=100/m=16 budget.
+M-series, 16 logical / 12 perf cores.
+
+| runner | 64×64 sps | 128×128 sps |
+|---|---|---|
+| fogleman Go −j1 (1 core) | 33.8 | 21.0 |
+| fogleman Go −j16 (all cores) | 263.9 | 174.9 |
+| our CPU port (1 thread) | 32.7 | 20.9 |
+| **our GPU (Metal), quality-matched** | **~509** | **56** (or 93 in-gate @ −0.42 dB) |
+
+- **64×64 (the GPU's regime on this Mac): GPU ≈ 1.9× fogleman −j16, ≈ 15× −j1**, quality matched.
+- **128×128: the GPU LOSES to fogleman −j16** (56 sps matched vs 174.9 ⇒ 0.32×). Going 64→128 the GPU
+  slows ~9× (4× pixels × ~3× deeper climbs to hold quality) while fogleman slows only ~1.5× (fixed
+  budget, data stays in M-series cache). **Unified memory gives the GPU no bandwidth edge** to offset.
+- **i32 does NOT overflow at 128×128 in the search** — anchored triangles stay small; 2048×84 reaches
+  36.77 dB > CPU, impossible under destructive overflow. So 128×128 runs correctly *without* hi-lo.
+
+**Consequence for the roadmap:** the hi-lo i64 / large-canvas path (GPU-4) is **deprioritized on
+Apple Silicon** — bigger canvas is a *negative-value* move here (the GPU gets relatively slower). The
+big-canvas GPU win requires a *discrete* GPU (dedicated bandwidth + more cores) — the CUDA backend on
+non-unified hardware, not a Metal size unlock.

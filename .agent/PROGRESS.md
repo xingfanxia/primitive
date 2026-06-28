@@ -97,22 +97,27 @@ per-step host sync; only the final canvas reads back. New modules: `primitive-co
 the size gate).
 
 Each worker seeds its own Philox stream and runs: **energy-targeted restart** (best of 8
-high-residual pixels — fogleman's energy-map heuristic, sampled) → **annealed hill-climb** (step
-shrinks 15→2 over the climb) → keep-better, scored by an in-kernel **scanline** raster (analytic
+high-residual pixels — fogleman's energy-map heuristic, sampled) → **self-adaptive hill-climb**
+(Rechenberg 1/5-rule step: a hit widens the mutation span, a stall narrows it — replaces the
+hand-tuned anneal, plan §4) → keep-better, scored by an in-kernel **scanline** raster (analytic
 per-row span, O(height) — the GPU-3-only fast path; GPU-2's edge-function scorer stays the
 parity-exact one).
 
 Gate evidence (all green in `make verify`, 30 tests):
 - **Determinism substrate**: `gpu3_philox.rs` — the kernel RNG is **10000/10000 bit-identical** to
   `primitive_core::rand_below` (pure-u32 Philox; mulhilo matches a u64 reference).
-- **End-to-end** (§7 / EVIDENCE target): `gpu3_optimize.rs`, 100 shapes 64×64, workers=6144 age=14:
-  **519 shapes/s ≥ 460 target** (≥20× the CORE-2 128×128 baseline) **and PSNR 35.98 dB, −0.23 dB
+- **End-to-end** (§7 / EVIDENCE target): `gpu3_optimize.rs`, 100 shapes 64×64, workers=10240 age=9:
+  **509 shapes/s ≥ 460 target** (≥20× the CORE-2 128×128 baseline) **and PSNR 36.02 dB, −0.19 dB
   vs the CPU run** (within the 0.5 dB gate). (GPU is also ~15× the same-run 64×64 CPU, which is
   unusually fast at that small size — hence the absolute 460 sps cross-resolution target.)
 
-Carry-forward: the i32 64×64 cap still applies (larger targets → i64/hi-lo, GPU-4 hardening). A
-parallel tree-argmin and on-device Gaussian mutation are possible refinements but not needed for
-the gate.
+Carry-forward (measured 2026-06-28, see EVIDENCE.md "fogleman-vs-GPU comparison"): the **hi-lo i64 /
+large-canvas path is deprioritized on Apple Silicon.** 128×128 already runs correctly on i32 (the
+anchored search keeps triangles small, no destructive overflow), but the GPU there *loses* to a
+16-core fogleman (unified memory → no bandwidth edge; the parallel search needs ~3× deeper climbs to
+hold quality at 4× the pixels). The big-canvas GPU win needs a *discrete* GPU — folded into GPU-4
+(CUDA), not a Metal size unlock. Remaining 64×64 polish (energy-map CDF restart, incremental scoring)
+is ~1.1–1.3× and optional; a parallel tree-argmin is not the hot path.
 
 ## Next: GPU-4 / GUI / PKG (interactive — credentials)
 

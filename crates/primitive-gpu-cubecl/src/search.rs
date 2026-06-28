@@ -197,11 +197,12 @@ pub fn evolve(
             target, current, x0, y0, x1, y1, x2, y2, alpha, width, height,
         );
 
-        for it in 0..age {
-            // Annealed perturbation: the step span shrinks from ~15 (explore) to 2 (refine) over
-            // the climb, so each evaluation is spent more efficiently — fewer evals reach the same
-            // quality (the eval-efficiency the parallel search needs to clear the throughput gate).
-            let span = 2u32 + (13u32 * (age - 1 - it)) / age;
+        // Self-adaptive step (Rechenberg 1/5 rule, per-iteration form — replaces the fixed
+        // anneal): an improving mutation widens the step (+4, keep exploring), a stalled one
+        // narrows it (−1, refine). At ~20% success the two balance — the 1/5 equilibrium — so the
+        // annealing schedule emerges from the data instead of being hand-tuned (see `core::es`).
+        let mut span = 10u32;
+        for _it in 0..age {
             let v = rand_below(s, ctr, 3);
             ctr += 1;
             let dx = rand_below(s, ctr, 2 * span + 1) as i32 - span as i32;
@@ -237,6 +238,12 @@ pub fn evolve(
                 y1 = cy1;
                 x2 = cx2;
                 y2 = cy2;
+                span += 4u32; // improving ⇒ widen (explore)
+                if span > 20u32 {
+                    span = 20u32;
+                }
+            } else if span > 2u32 {
+                span -= 1u32; // stalled ⇒ narrow (refine)
             }
         }
 
