@@ -50,3 +50,22 @@ The GPU `score_candidates` kernel (color + composite + integer delta-SSE) reprod
 `primitive_core::candidate_color_and_delta` bit-for-bit for 1000 random triangle candidates on a
 64×64 target. Coverage rasterized on CPU (on-device raster → GPU-2). Green in `make verify`
 (19 tests, stable rustc 1.96).
+
+## GPU-2 (2026-06-27)
+
+### On-device rasterize + score parity — `crates/primitive-gpu-cubecl/tests/gpu2_triangles.rs`
+```
+GPU-2 on-device raster+score: 1000/1000 candidates bit-identical to CPU integer path
+GPU-2 reduce_argmin: winner=509 (delta -2875356), CPU brute-force winner=509 (delta -2875356)
+```
+The `score_triangles` kernel rasterizes in-kernel (integer edge-function test ==
+`primitive_core::rasterize_triangle_int`) then color+composite+delta-SSE; exact vs the CPU integer
+path. On-device `argmin` matches CPU brute force.
+
+### Throughput ≥20× — `crates/primitive-gpu-cubecl/tests/gpu2_throughput.rs`
+```
+GPU-2 throughput: GPU 25.66 M cand/s | CPU 0.58 M cand/s (integer path, 1 core) | speedup 43.9×
+```
+Same integer work both sides (rasterize + color + delta-SSE per candidate); 64×64, alpha 128,
+262k-candidate batches, target/current resident in a `GpuSession`. Comfortably clears the ≥20×
+(≳9 M cand/s) gate. Green in `make verify` (24 tests).

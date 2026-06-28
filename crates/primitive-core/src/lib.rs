@@ -41,6 +41,7 @@ pub use color::{compute_color, Color};
 pub use eval::candidate_color_and_delta;
 pub use model::{psnr_from_score, AddedShape, Model};
 pub use optimizer::{Ctx, SearchBudget, Searcher, State};
+pub use raster::{rasterize_triangle_int, triangle_inside, Scanline};
 pub use rng::Rng;
 pub use score::{delta_sse_partial, difference_full, difference_partial, sse_full};
 pub use shape::{Shape, ShapeType, Triangle};

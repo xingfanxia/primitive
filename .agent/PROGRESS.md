@@ -64,9 +64,33 @@ Scope notes (carry-forward to GPU-2/3, by design, not a gap):
 - **64×64 cap keeps every accumulator in i32/u32** (no overflow). Larger targets need i64 or a
   hi/lo split — WGSL lacks i64, so this is a GPU-2 hardening item (validate on Metal first).
 
-## Next: GPU-2 → GPU-3
+## GPU-2 — on-device rasterize + score + reduce_argmin — ✅ DONE (2026-06-27)
 
-GPU-2: batched B-candidate dispatch + `reduce_argmin` (winning index == CPU brute force), on-device
-deterministic rasterization, **≥ 20× the CORE-2 CPU candidates/sec baseline**. GPU-3: on-device
-(1+1)-ES + Philox + energy-map restarts; 1000-shape run ≥ 20× CPU, PSNR within 0.5 dB.
-Re-run the CPU-oracle parity test on every GPU change.
+The §6.6 determinism work that unblocks the GPU: a **deterministic integer rasterizer** shared
+CPU↔GPU. `primitive_core::rasterize_triangle_int` / `triangle_inside` use an integer edge-function
+test (no f64 → no Metal divergence); the GPU kernel runs the identical test in-kernel. The f64
+`rasterize_triangle` stays the CORE/golden reference (unchanged, CORE-1 intact); the integer one is
+the portable production path.
+
+Gate evidence (all green in `make verify`, 24 tests):
+- **On-device parity** (§7 GPU-2): `gpu2_triangles.rs` — the `score_triangles` kernel (in-kernel
+  raster + color + integer delta-SSE, candidate = 6 ints) is **1000/1000 bit-identical** to the CPU
+  integer path (`rasterize_triangle_int` + `candidate_color_and_delta`).
+- **reduce_argmin**: on-device `argmin` picks the **same winning index as CPU brute force**
+  (winner 509, first-min tie-break). Only the 4-byte index syncs back.
+- **Throughput** (§7 GPU-2): `gpu2_throughput.rs` — **43.9× single-core CPU** (GPU 25.7 M cand/s
+  vs CPU 0.58 M cand/s, same integer work), well over the ≥20× gate.
+
+Architecture: `GpuSession` holds target/current resident on-device; a step uploads only candidate
+triangles (no per-candidate host sync) — the foundation the GPU-3 loop builds on.
+
+Carry-forward: parallel (tree) argmin deferred — in the real loop argmin runs once per *step*
+(~20k candidates), so single-thread is not the hot path; scoring is, and that's parallel. 64×64
+i32/u32 cap still applies (i64/large-target = later hardening; WGSL lacks i64).
+
+## Next: GPU-3
+
+On-device search loop: Philox RNG + (1+1)-ES triangle mutation + energy-map restart sampling +
+accept/reject + composite-winner, all GPU-resident across 1000 shapes. Gate: end-to-end ≥ 20× the
+CPU shapes/sec baseline AND final PSNR within 0.5 dB of the CPU run. Re-run the CPU-oracle parity
+test on every GPU change.

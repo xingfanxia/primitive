@@ -48,6 +48,13 @@ impl Shape {
             Shape::Triangle(t) => t.svg(attrs),
         }
     }
+
+    /// Flat `[x1, y1, x2, y2, x3, y3]` — the layout the GPU `score_triangles` kernel consumes.
+    pub fn triangle_coords(&self) -> [i32; 6] {
+        match self {
+            Shape::Triangle(t) => [t.x1, t.y1, t.x2, t.y2, t.x3, t.y3],
+        }
+    }
 }
 
 #[inline]
