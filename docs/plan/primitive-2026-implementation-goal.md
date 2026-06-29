@@ -44,7 +44,11 @@ is measured against. Nothing downstream is trustworthy without the golden image 
 
 ## Subsequent goal blocks (run each in its own session, in order)
 
-### GPU slice — prove the speedup (the headline result)
+> **Status (2026-06-29):** ✅ CORE-1/2 · ✅ GPU-1/2/3 · ✅ GPU-3 perf pass (self-adaptive step, 519 sps @ 64×64,
+> ~1.9× fogleman) · ✅ GUI-1 (eframe shell + live canvas). **Next session → GUI-2, then PKG-1.** GPU-4 (CUDA) is
+> a different-machine job (`docs/gpu4-cuda/RUNBOOK.md`). Full ledger: `.agent/PROGRESS.md` + `.agent/EVIDENCE.md`.
+
+### GPU slice — prove the speedup (the headline result) — ✅ DONE
 ```
 Continue the plan (docs/plan/primitive-2026-architecture.md §6, §7). Implement GPU-1 → GPU-2 → GPU-3:
 the fused single-dispatch CubeCL kernel (Philox mutate -> graduated raster -> closed-form color ->
@@ -60,33 +64,77 @@ Skill(skill="autonomous-grind", args="start GPU-1/2/3 done: cargo test exit 0, p
 > This is the milestone that **proves the old Python/MPS regression is gone.** If parity fails, the integer-SSE
 > determinism design (§6.6) is the first thing to check.
 
-### GUI slice — the spectacle
+### GUI-2 slice — interaction states, a11y, export, GPU chip (GUI-1 is DONE)
+
+> GUI-1 shipped (`primitive-app`, binary `primitive`): hero live canvas + sidebar, drop/Browse/samples,
+> count+alpha, Start/Pause/Resume/Reset, PNG/SVG export, background-thread frame streaming, CPU adapter — see
+> `.agent/PROGRESS.md` → GUI-1. GUI-2 closes the remaining §5A gaps. **Out of scope:** the multi-shape-type
+> selector — core implements only `Triangle`; adding ellipse/rect/… is a CORE milestone, not GUI.
 ```
-Continue the plan (§5, §5A, §7). Implement GUI-1 → GUI-2: eframe shell sharing ONE wgpu::Device with the compute
-core; live zero-copy canvas via CallbackTrait; the controls + all interaction states from §5A including the
-GPU-unavailable amber chip; PNG/SVG/GIF export; keyboard shortcuts; AccessKit a11y.
+Continue the plan (architecture.md §5A, §7). GUI-1 is done. Implement GUI-2 in `primitive-app`: the remaining
+§5A interaction-state cells; GPU backend detection + the amber `CPU (no GPU found)` fallback chip (the GPU runs
+the WHOLE loop via `gpu_optimize` — an "instant" mode; it is NOT a per-shape `ShapeSearch` port); keyboard
+shortcuts (⌘O/Space/⌘E/⌘R/⌘,); an Advanced disclosure (seed + n/age/m); Export ▾ (PNG·SVG·GIF); AccessKit a11y;
+Reduce-Motion; an i18n string table; window+param persistence. Build the §5A interaction state as a PURE,
+render-free module so it is unit-testable headless.
 
-/goal GUI-1/GUI-2 done: an e2e smoke (load image -> run 100 shapes -> export SVG) exits 0 and produces a valid
-SVG (paste the exit code + `xmllint --noout` result), the app launches with a forced-CPU build and still
-completes a run showing the `CPU (no GPU found)` chip, and the §5A interaction-state checklist is all covered;
-or stop after 35 turns.
+/goal GUI-2 done and proven in the transcript:
+(1) `cargo test -p primitive-app` exits 0 with the §5A interaction-state suite passing — one test per
+    surface×state cell over the pure state module (canvas drop/error/live; source dimmed-mid-run; controls
+    disabled-mid-run-except-Pause/Reset; Start gated-on-image; Export disabled-until->=1-shape; device amber
+    chip) — paste exit code + the printed pass count covering every §5A row (architecture.md lines 246-259).
+(2) the scripted e2e (load sample -> 100 shapes -> export SVG) exits 0 AND `xmllint --noout out.svg` exits 0 —
+    paste BOTH exit codes.
+(3) a forced-CPU run (`PRIMITIVE_FORCE_CPU=1`) completes a 100-shape run and prints the backend label
+    `CPU (no GPU found)` to the transcript — paste the line.
+(4) the AccessKit-tree test (egui_kittest, architecture.md line 276) exits 0 asserting control labels + a
+    live-progress node exist — paste exit code.
+(5) the deterministic a11y test exits 0 — WCAG contrast from the design tokens (text >=4.5:1, chips >=3:1) and
+    repaint-pulse-off-when-Reduce-Motion (architecture.md line 278) — paste exit code.
+(6) `tools/verify/check-boundaries.sh` exits 0 (adapters imported only at primitive-app/main.rs) — paste exit code.
+Live >=30 fps, VoiceOver speech, the amber-chip render, and GIF visual progression are ARTIFACTS, not gates (the
+Haiku evaluator can't see a window). Or stop after 35 turns.
 
-Skill(skill="autonomous-grind", args="start GUI-1/2 done: e2e smoke exit 0 + valid SVG, forced-CPU run completes with chip, §5A states covered, or 35 turns")
+Skill(skill="autonomous-grind", args="start GUI-2 done: cargo test -p primitive-app §5A state suite exit 0, e2e exit 0 + xmllint valid SVG, forced-CPU run prints 'CPU (no GPU found)', AccessKit-tree test exit 0, WCAG/Reduce-Motion token test exit 0, check-boundaries.sh exit 0, or 35 turns")
 ```
-> Note: live-fps and zero-copy verification need a screenshot/Metal-capture — surface those as artifacts; the
-> Haiku evaluator can't see a running window, so the *machine-checkable* gate is the e2e smoke + forced-CPU run.
+> Machine-checkable = the 6 gates above (pasteable exit codes / printed labels). Genuinely-visual items (fps,
+> VoiceOver speech, chip color, GIF playback) are hand-verified artifacts, never in the predicate. The AccessKit
+> gate asserts the tree *data* (not speech); the WCAG gate is *math over design tokens* (not rendered pixels).
 
-### PKG-1 slice — signed Mac app (DO NOT use auto-mode here)
+### PKG-1 slice — signed Mac app (Part A autonomous · Part B interactive-credentials)
+
+**Part A — bundle scaffolding (autonomous, NO credentials, NO /goal):**
 ```
-Continue the plan (§7 PKG-1). Bundle the macOS .app (cargo-bundle + Info.plist + icons), then codesign with my
-Developer ID, notarize via xcrun notarytool, staple, and build the DMG via scripts/ops/sign-notarize.sh.
-Pause and confirm with me before any codesign/notarize/network step — these use my Apple credentials.
-
-(No /goal here — PKG-1 touches credentials/distribution; run it interactively, not autonomously. Done = on a
-clean machine, `spctl --assess --type execute` returns "accepted" and `xcrun stapler validate` passes.)
+Continue the plan (architecture.md §7 PKG-1). Scaffold the macOS bundle — NO signing, NO network:
+- assets/Info.plist (name primitive, id com.primitive.app, version from the workspace, LSMinimumSystemVersion, category)
+- assets/icons/ — a flat geometric "primitive" mark as a PNG set (512..16) and/or .icns (gpt-image is fine)
+- [package.metadata.bundle] in crates/primitive-app/Cargo.toml
+- scripts/ops/sign-notarize.sh that runs cargo-bundle -> validation -> create-dmg, then HALTS with printed
+  instructions immediately BEFORE the first codesign step (it must never call codesign/notarytool itself).
+Done (pasteable): `plutil -lint assets/Info.plist` exits 0, `cargo bundle` produces .../primitive.app, and the
+script halts at the codesign step. No credentials touched.
 ```
 
-### GPU-4 + PKG-2 — Windows / CUDA (later)
+**Part B — sign / notarize / staple (interactive; confirm before EACH step; NO /goal, NO auto-mode):**
+```
+Continue scripts/ops/sign-notarize.sh from where Part A halted. Run step-by-step, pausing for my explicit
+confirmation before EACH credential/network step (I hold the Apple credentials):
+  1. codesign --sign "Developer ID Application: <name>" --timestamp --options runtime --deep --force primitive.app
+  2. create-dmg ... primitive.dmg
+  3. xcrun notarytool submit primitive.dmg --apple-id <email> --team-id <team> --password <app-specific-pw>
+  4. xcrun stapler staple primitive.app
+No /goal, no auto-mode for any of the above.
+```
+> Done-gate (architecture.md §7 PKG-1): on a **clean machine** (no dev tools), `xcrun stapler validate
+> primitive.app` exits 0 AND `spctl --assess --type execute primitive.app` says `accepted`, and Gatekeeper opens
+> it with no warning. This gate is verified on a *second* machine — exactly why PKG-1 stays out of /goal.
+
+### GPU-4 + PKG-2 — Windows / CUDA (different machine)
+
+> **Step-by-step runbook: `docs/gpu4-cuda/RUNBOOK.md`** — runs on a machine with a discrete NVIDIA GPU (the
+> Mac can't produce the headline number). Measured rationale: on Apple Silicon's unified memory the GPU loses
+> to a 16-core fogleman at 128×128 (`.agent/EVIDENCE.md`); a discrete card with dedicated bandwidth is the real
+> big-canvas regime, and CUDA's native i64 removes the 64×64 i32 cap (no hi-lo split needed there).
 ```
 Continue the plan (§7 GPU-4, PKG-2). Bring up the CUDA backend from the SAME #[cube] source on NVIDIA/Windows.
 
