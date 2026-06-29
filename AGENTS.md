@@ -11,7 +11,10 @@ Milestone state + evidence: [`.agent/PROGRESS.md`](.agent/PROGRESS.md).
 make verify        # fmt + clippy -D warnings + boundaries + giant-file + cargo test (release)
 ```
 "Done" = `make verify` exits 0. CI (`.github/workflows/ci.yml`) runs the same on macOS arm64.
-Useful sub-targets: `make baseline` (CPU shapes/sec), `make golden` (SSIM + quality margin).
+Useful sub-targets: `make baseline` (CPU shapes/sec), `make golden` (SSIM + quality margin),
+`make bundle` (PKG-1: build+validate `primitive.app`, halt before codesign), `make icon` (regenerate the app icon).
+
+Run the desktop app: `cargo run -p primitive-app --release` (binary `primitive`).
 
 ## Crate map & import direction (hexagonal — enforced by `tools/verify/check-boundaries.sh`)
 
@@ -24,9 +27,9 @@ core (pure) ← compute (ports) ← engine (orchestration) ← adapters / app (c
 | `primitive-core` | domain (pure) | — | shapes, raster, color, score, ES, model. No GPU/IO/clock/global-RNG. RNG is injected. The parity oracle + golden reference. |
 | `primitive-compute` | ports | core | `ShapeSearch` trait + DTOs (`SearchParams`=`core::SearchBudget`, `BestShape`, `Backend`). Backend-agnostic. |
 | `primitive-gpu-cpu` | adapter | core, compute | `CpuSearch`: single-threaded reference search → permanent parity oracle + GPU-absent fallback. |
+| `primitive-gpu-cubecl` | adapter | core, compute | GPU adapter (CubeCL→Metal): fused score kernel, on-device search (`gpu_optimize`), `gpu_available()` probe. No float/64-bit atomics; integer-SSE parity with the CPU oracle. |
 | `primitive-engine` | application | core, compute | `Engine<S: ShapeSearch>`: per-shape loop. Never names a concrete adapter (composition root is in `tests/`). |
-
-GPU (`primitive-gpu-cubecl`) and GUI (`primitive-app`) crates are added at GPU-1 / GUI-1 — not present yet.
+| `primitive-app` | composition root (lib+bin `primitive`) | core, compute, engine, both adapters | eframe GUI (§5/§5A). Pure `state` module drives every interaction cell; `theme`/`device`/`i18n`/`hero`/`sidebar`/`runner`/`image_io` around it. The ONLY crate that imports adapters. |
 
 ## Where things are proven (gates per plan §7)
 
@@ -34,6 +37,11 @@ GPU (`primitive-gpu-cubecl`) and GUI (`primitive-app`) crates are added at GPU-1
   `tests/fixtures/parity_fogleman.json` (regenerate: `cd go_primitive && go test -run TestDumpParityFixture ./primitive`).
 - **CORE-1 golden** (SSIM ≥ 0.999 determinism + final score within 1% of fogleman) — `tests/golden.rs`.
 - **CORE-2 parity + CPU baseline** — `crates/primitive-engine/tests/cpu_baseline.rs` (byte-identical to core; prints shapes/sec).
+- **GPU-1/2/3** — integer-SSE parity + on-device search in `crates/primitive-gpu-cubecl/tests/*` (Metal; `make verify` runs them).
+- **GUI-2** — the §5A interaction gates in `crates/primitive-app/tests/*` (`state_suite` pure-state matrix,
+  `e2e` load→100→SVG, `forced_cpu` device chip, `a11y_tree` AccessKit, `a11y_tokens` WCAG/Reduce-Motion).
+
+Full milestone state (CORE-1/2 · GPU-1/2/3 · GUI-1/2 · PKG-1 Part A — all ✅) lives in `.agent/PROGRESS.md` + `.agent/EVIDENCE.md`.
 
 ## Rules for changes here
 
