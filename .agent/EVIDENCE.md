@@ -176,3 +176,26 @@ make verify  → "verify: ALL GREEN"   # fmt + clippy -D warnings + boundaries +
 `gpu_available()` added to the GPU adapter for the probe; `primitive-app` (the composition root) is the
 only crate importing both adapters — boundaries unchanged. app.rs kept under the 500-LOC gate by
 extracting the `hero` renderer.
+
+## PKG-1 Part A (2026-06-29)
+
+macOS bundle scaffolding — **no signing, no network**. `make bundle` / `scripts/ops/sign-notarize.sh`:
+```
+==> [Part A] Validating canonical Info.plist
+assets/Info.plist: OK                                            # plutil -lint → exit 0
+==> [Part A] Building the app bundle (cargo bundle --release)
+    Bundling primitive.app
+    Finished 1 bundle at: target/release/bundle/osx/primitive.app
+==> [Part A] Validating the produced bundle
+target/release/bundle/osx/primitive.app/Contents/Info.plist: OK  # plutil -lint → exit 0
+    OK — target/release/bundle/osx/primitive.app built and structurally valid.
+HALT: stopping BEFORE codesign. Part A is complete and touched NO credentials.
+```
+`plutil -extract CFBundleIdentifier raw …/primitive.app/Contents/Info.plist` → `com.primitive.app`;
+`Contents/Resources/primitive.icns` present; `Contents/MacOS/primitive` executable. The script never
+calls codesign/notarytool/stapler — Part B is interactive (you hold the Apple credentials). Icon set
+generated offline by `scripts/ops/gen-icon.py` (PIL only, the app's own translucent-triangle motif).
+
+Part B done-gate (interactive, on a **clean** machine — verified off-`/goal`, plan §7 PKG-1):
+`xcrun stapler validate primitive.app` → "worked"; `spctl --assess --type execute primitive.app` →
+`accepted … source=Notarized Developer ID`.

@@ -13,6 +13,10 @@ outputs/
 !crates/**/tests/fixtures/
 !crates/**/tests/fixtures/**
 
+# Exception for the PKG-1 app icon set (referenced by [package.metadata.bundle]; must be committed).
+# The intermediate *.iconset/ PNGs stay ignored — regenerate via scripts/ops/gen-icon.py.
+!assets/icons/*.png
+
 # Rust build artifacts (Cargo.lock IS committed — see plan: pin + lock)
 /target/
 

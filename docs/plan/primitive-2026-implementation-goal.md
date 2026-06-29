@@ -48,6 +48,10 @@ is measured against. Nothing downstream is trustworthy without the golden image 
 > ~1.9× fogleman) · ✅ GUI-1 (eframe shell + live canvas) · ✅ GUI-2 (all 6 §5A gates green; `make verify` ALL
 > GREEN). **Next → PKG-1 Part A (autonomous), then PKG-1 Part B (interactive credentials).** GPU-4 (CUDA) is
 > a different-machine job (`docs/gpu4-cuda/RUNBOOK.md`). Full ledger: `.agent/PROGRESS.md` + `.agent/EVIDENCE.md`.
+>
+> **PKG-1 Part A ✅ DONE (2026-06-29):** `make bundle` builds + validates `primitive.app` (`com.primitive.app`,
+> v0.1.0, flat-triangle icon) and HALTS before codesign — no credentials. **Remaining = interactive/other-machine
+> only:** PKG-1 Part B (codesign → notarize → staple, you hold the Apple credentials) and GPU-4/PKG-2 (NVIDIA/Windows).
 
 ### GPU slice — prove the speedup (the headline result) — ✅ DONE
 ```
@@ -104,7 +108,7 @@ Skill(skill="autonomous-grind", args="start GUI-2 done: cargo test -p primitive-
 
 ### PKG-1 slice — signed Mac app (Part A autonomous · Part B interactive-credentials)
 
-**Part A — bundle scaffolding (autonomous, NO credentials, NO /goal):**
+**Part A — bundle scaffolding (autonomous, NO credentials, NO /goal): ✅ DONE (2026-06-29) — `make bundle`**
 ```
 Continue the plan (architecture.md §7 PKG-1). Scaffold the macOS bundle — NO signing, NO network:
 - assets/Info.plist (name primitive, id com.primitive.app, version from the workspace, LSMinimumSystemVersion, category)

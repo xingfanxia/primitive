@@ -31,3 +31,23 @@ serde = { version = "1", features = ["derive"] }
 [dev-dependencies]
 # AccessKit-tree assertions (plan §5A a11y gate) — pinned to egui 0.34's matching kittest.
 egui_kittest = { version = "0.34", features = ["eframe"] }
+
+# PKG-1: macOS app bundle (cargo-bundle). Mirrors assets/Info.plist (one fact, two shapes — keep in
+# sync). Build: `cargo bundle --release` → target/release/bundle/osx/primitive.app. Signing/notarizing
+# is NOT here — that's scripts/ops/sign-notarize.sh Part B (interactive, Apple credentials).
+[package.metadata.bundle]
+name = "primitive"
+identifier = "com.primitive.app"
+category = "public.app-category.graphics-design"
+short_description = "Reconstruct an image from geometric primitives."
+long_description = "primitive rebuilds an image from translucent geometric shapes — watch the picture assemble itself, then export PNG, SVG, or GIF."
+osx_minimum_system_version = "11.0"
+# Icon paths resolve from this manifest dir; the assets live at the workspace root.
+icon = [
+    "../../assets/icons/icon_512.png",
+    "../../assets/icons/icon_256.png",
+    "../../assets/icons/icon_128.png",
+    "../../assets/icons/icon_64.png",
+    "../../assets/icons/icon_32.png",
+    "../../assets/icons/icon_16.png",
+]

@@ -174,7 +174,21 @@ ungated artifact (needs a GPU window to watch). Out of scope by design: the mult
 
 - **GPU-4: CUDA on a discrete NVIDIA GPU — see `docs/gpu4-cuda/RUNBOOK.md`** (runs on another machine;
   settles the big-canvas GPU-vs-fogleman number the Mac can't produce). i64 is native on CUDA.
-- **PKG-1 Part A** (macOS bundle scaffolding — Info.plist, icons, `[package.metadata.bundle]`,
-  `scripts/ops/sign-notarize.sh` that HALTS before codesign): autonomous, no credentials.
 - **PKG-1 Part B** (codesign → create-dmg → notarytool → staple) + **PKG-2** (Windows): **interactive
   only** (Apple/Windows credentials), never under auto-mode / `/goal`.
+
+## PKG-1 Part A — macOS bundle scaffolding (no signing, no network) — ✅ DONE (2026-06-29)
+
+`assets/Info.plist` (canonical, plutil-lintable: name `primitive`, id `com.primitive.app`, version
+0.1.0, LSMinimumSystemVersion 11.0, category `public.app-category.graphics-design`), a flat-geometric
+icon set `assets/icons/icon_{512..16}.png` + `primitive.icns` (the app's own translucent-triangle
+motif, generated offline by `scripts/ops/gen-icon.py` — no gpt-image/network), `[package.metadata.bundle]`
+in `crates/primitive-app/Cargo.toml`, and `scripts/ops/sign-notarize.sh` (also `make bundle`) that
+builds + validates the `.app` then **HALTS with printed Part B instructions immediately before the first
+`codesign` step** — it never calls codesign/notarytool/stapler itself.
+
+Gate evidence (no credentials touched): `plutil -lint assets/Info.plist` → `OK`; `cargo bundle --format
+osx` → `target/release/bundle/osx/primitive.app` (generated Info.plist id `com.primitive.app`,
+`primitive.icns` in Resources, executable present); the script halts at the codesign boundary.
+**Part B (sign/notarize/staple) is interactive-only** — done-gate is `xcrun stapler validate` + `spctl
+--assess` = accepted on a *clean* machine (verified off-`/goal`, with you holding the Apple credentials).

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Canonical Info.plist for the `primitive` macOS app (PKG-1 Part A).
+  The bundle Info.plist that cargo-bundle generates from [package.metadata.bundle] in
+  crates/primitive-app/Cargo.toml mirrors these keys — keep the two in sync (one fact, one shape).
+  Lint: `plutil -lint assets/Info.plist`.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>primitive</string>
+	<key>CFBundleDisplayName</key>
+	<string>primitive</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.primitive.app</string>
+	<key>CFBundleExecutable</key>
+	<string>primitive</string>
+	<key>CFBundleVersion</key>
+	<string>0.1.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleIconFile</key>
+	<string>primitive.icns</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>11.0</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.graphics-design</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>MIT licensed.</string>
+</dict>
+</plist>
