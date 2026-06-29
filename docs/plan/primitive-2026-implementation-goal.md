@@ -45,7 +45,8 @@ is measured against. Nothing downstream is trustworthy without the golden image 
 ## Subsequent goal blocks (run each in its own session, in order)
 
 > **Status (2026-06-29):** ✅ CORE-1/2 · ✅ GPU-1/2/3 · ✅ GPU-3 perf pass (self-adaptive step, 519 sps @ 64×64,
-> ~1.9× fogleman) · ✅ GUI-1 (eframe shell + live canvas). **Next session → GUI-2, then PKG-1.** GPU-4 (CUDA) is
+> ~1.9× fogleman) · ✅ GUI-1 (eframe shell + live canvas) · ✅ GUI-2 (all 6 §5A gates green; `make verify` ALL
+> GREEN). **Next → PKG-1 Part A (autonomous), then PKG-1 Part B (interactive credentials).** GPU-4 (CUDA) is
 > a different-machine job (`docs/gpu4-cuda/RUNBOOK.md`). Full ledger: `.agent/PROGRESS.md` + `.agent/EVIDENCE.md`.
 
 ### GPU slice — prove the speedup (the headline result) — ✅ DONE
@@ -64,7 +65,7 @@ Skill(skill="autonomous-grind", args="start GPU-1/2/3 done: cargo test exit 0, p
 > This is the milestone that **proves the old Python/MPS regression is gone.** If parity fails, the integer-SSE
 > determinism design (§6.6) is the first thing to check.
 
-### GUI-2 slice — interaction states, a11y, export, GPU chip (GUI-1 is DONE)
+### GUI-2 slice — interaction states, a11y, export, GPU chip — ✅ DONE (2026-06-29)
 
 > GUI-1 shipped (`primitive-app`, binary `primitive`): hero live canvas + sidebar, drop/Browse/samples,
 > count+alpha, Start/Pause/Resume/Reset, PNG/SVG export, background-thread frame streaming, CPU adapter — see

@@ -249,6 +249,18 @@ pub fn gpu_optimize(target: &Canvas, cfg: &OptConfig) -> Canvas {
     }
 }
 
+/// Is a compatible GPU present? Probes by spinning up the wgpu/Metal client and allocating one
+/// tiny buffer; any failure (no adapter, driver fault) is caught and reported as "unavailable" so
+/// the GUI can degrade to the CPU oracle instead of crashing (plan §5A: the GPU-unavailable state
+/// is first-class, never a fatal error). This is the app's "one-time probe on launch".
+pub fn gpu_available() -> bool {
+    std::panic::catch_unwind(|| {
+        let client = WgpuRuntime::client(&Default::default());
+        let _ = client.empty(core::mem::size_of::<i32>());
+    })
+    .is_ok()
+}
+
 /// GPU-3 probe: `rand_below(seed, i, range)` for `i in 0..n` on the GPU — proves the kernel's
 /// counter-based RNG is bit-identical to `primitive_core::rand_below` (the determinism substrate).
 pub fn gpu_philox_fill(seed: u32, range: u32, n: usize) -> Vec<u32> {

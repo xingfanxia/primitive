@@ -120,3 +120,59 @@ M-series, 16 logical / 12 perf cores.
 Apple Silicon** — bigger canvas is a *negative-value* move here (the GPU gets relatively slower). The
 big-canvas GPU win requires a *discrete* GPU (dedicated bandwidth + more cores) — the CUDA backend on
 non-unified hardware, not a Metal size unlock.
+
+## GUI-2 (2026-06-29)
+
+The six machine-checkable §5A gates. `primitive-app` is now a lib+thin-bin; the pure `state` module is
+the single source of truth for every interaction cell. All green under `make verify` and in the
+per-gate runs below.
+
+### Gate 1 — §5A interaction-state suite — `cargo test -p primitive-app --test state_suite`
+```
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+One `#[test]` per surface×state cell over the pure `state::Ui` model (no egui/window), covering every
+architecture.md 246-259 row: Canvas (dropzone/error/staged/live/done), Source (dropzone/loaded/dimmed),
+Controls (editable / disabled-mid-run-except-Pause/Reset), Start/Export (gated-on-image /
+disabled-until-≥1-shape / Start⇄Pause / disabled-mid-run-until-paused-or-done / SVG-when-done),
+Device (Metal green / amber `CPU (no GPU found)` / neutral CPU).
+
+### Gate 2 — e2e load→100 shapes→SVG + xmllint
+```
+test load_sample_run_100_export_svg ... ok        # cargo test --release --test e2e  → exit 0
+xmllint --noout <out>.svg ; echo $?  → 0           # well-formed SVG (<svg> root + <polygon> triangles)
+```
+
+### Gate 3 — forced-CPU graceful degradation — `PRIMITIVE_FORCE_CPU=1`
+```
+BACKEND_LABEL=CPU (no GPU found)
+FORCED_CPU_RUN=ok 100/100 shapes on CPU (no GPU found)
+test forced_cpu_probe_labels_and_runs_100_shapes ... ok
+```
+The probe (`device::detect`) returns the amber fallback chip and a full 100-shape run completes on the
+CPU adapter — the GPU-unavailable state is first-class, never a fatal error (§5A). Hermetic (sets the
+override in-process) so it's green under plain `make verify` too.
+
+### Gate 4 — AccessKit tree — `cargo test -p primitive-app --test a11y_tree` (egui_kittest 0.34)
+```
+test accesskit_tree_has_controls_and_live_progress ... ok
+```
+Drives the real UI headless (clicks the `cat` sample chip *through the accessibility tree*), then
+asserts the tree exposes the control labels (Start / count[SpinButton value="250"] / alpha) and a
+live-progress node (`0/250`). VoiceOver speech itself is a hand-verified artifact, not gated.
+
+### Gate 5 — deterministic a11y math — `cargo test -p primitive-app --test a11y_tokens`
+```
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+WCAG 2.1 contrast over the design tokens (no rendered pixels): light+dark text ≥ 4.5:1, all three chip
+fg/bg pairs ≥ 3:1 (the amber fallback chip guarded explicitly); and `Reduce Motion ⇒ motion_pulse off`.
+
+### Gate 6 — boundaries + full verify
+```
+./tools/verify/check-boundaries.sh  → exit 0
+make verify  → "verify: ALL GREEN"   # fmt + clippy -D warnings + boundaries + giant-file + all tests
+```
+`gpu_available()` added to the GPU adapter for the probe; `primitive-app` (the composition root) is the
+only crate importing both adapters — boundaries unchanged. app.rs kept under the 500-LOC gate by
+extracting the `hero` renderer.

@@ -11,14 +11,23 @@ name = "primitive"
 path = "src/main.rs"
 
 [dependencies]
-# Composition root — the ONLY place adapters are imported (plan §5 import-direction rule).
+# Composition root — the ONLY place adapters are imported (plan §5 import-direction rule). Both the
+# CPU oracle (live streaming) and the GPU adapter (device probe + "instant" mode) are wired here.
 primitive-core = { path = "../primitive-core" }
 primitive-compute = { path = "../primitive-compute" }
 primitive-engine = { path = "../primitive-engine" }
 primitive-gpu-cpu = { path = "../primitive-gpu-cpu" }
+primitive-gpu-cubecl = { path = "../primitive-gpu-cubecl" }
 
 # Pinned to 0.34 (plan §Standing rules): 0.35 reworked the App trait (ui()-based) and dropped
 # SidePanel/TopBottomPanel — 0.34's conventional update(ctx,frame)+panels API is the documented one.
-eframe = "0.34"
+# `persistence` remembers window size + last-used params across launches (§5A window behavior).
+eframe = { version = "0.34", features = ["persistence"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 rfd = "0.17"
+# Persisted params (count/alpha/seed/n/age/m/reduce-motion) — serialized via eframe storage.
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+# AccessKit-tree assertions (plan §5A a11y gate) — pinned to egui 0.34's matching kittest.
+egui_kittest = { version = "0.34", features = ["eframe"] }

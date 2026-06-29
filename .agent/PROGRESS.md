@@ -142,9 +142,39 @@ spectacle; wiring a GPU "instant" mode is a later increment). Modules: `main`/`a
 Carry-forward (GUI-2): full §5A interaction-state polish (toasts/Reveal-in-Finder, mid-run SVG, sample
 thumbnails, keyboard shortcuts, AccessKit a11y, Reduce-Motion); optional GPU "instant" run mode.
 
-## Next: GPU-4 (different machine) / GUI-2 / PKG
+## GUI-2 — §5A interaction states, a11y, export, GPU chip — ✅ DONE (2026-06-29)
+
+`primitive-app` split into a **lib + thin bin** so the interaction logic, a11y math, device probe, and
+end-to-end run are unit-testable headless. New modules: `state` (the **pure**, render-free §5A model —
+no egui/IO), `theme` (design tokens + WCAG contrast math), `device` (backend probe), `i18n` (string
+table), `hero` (canvas/chip/progress renderer, split from `app` for the size gate). The CPU adapter is
+still the live spectacle; the GPU adapter is now wired for **detection** (the device chip) + an
+**"instant" mode** (`gpu_optimize`, raster-only, ≤128 px) — `primitive-gpu-cubecl::gpu_available()`
+added as the probe. New §5A features: keyboard shortcuts (⌘O/Space/⌘E/⌘R/⌘,), Advanced disclosure
+(seed/n/age/m + Reduce-Motion), Export ▾ (PNG·SVG·GIF), window+param persistence (eframe `persistence`).
+
+Gate evidence (all 6 machine-checkable gates green; full detail in EVIDENCE.md → GUI-2):
+- **§5A state suite** (`tests/state_suite.rs`): **18/18** — one `#[test]` per surface×state cell over
+  the pure `state::Ui` model (Canvas · Source · Controls · Start/Export · Device), every architecture.md
+  246-259 row covered.
+- **e2e** (`tests/e2e.rs`): load sample → 100 shapes → export SVG, then `xmllint --noout` — **both exit 0**.
+- **forced-CPU** (`tests/forced_cpu.rs`): `PRIMITIVE_FORCE_CPU=1` → prints `CPU (no GPU found)` + 100/100.
+- **AccessKit tree** (`tests/a11y_tree.rs`, egui_kittest): control labels + a live-progress node exist.
+- **a11y tokens** (`tests/a11y_tokens.rs`): WCAG AA — text ≥ 4.5:1, chips ≥ 3:1; Reduce-Motion pulse off.
+- **boundaries** (`check-boundaries.sh`) exit 0; **`make verify` ALL GREEN** (fmt/clippy/giant-file/tests).
+
+Genuinely-visual items (live ≥30 fps, VoiceOver speech, amber-chip colour, GIF playback) are
+hand-verified artifacts, never in the predicate (the headless harness can't see a window).
+
+Carry-forward: the GPU "instant" mode is wired + defensive (catch_unwind → CPU fallback) but is an
+ungated artifact (needs a GPU window to watch). Out of scope by design: the multi-shape-type selector
+(core implements only `Triangle` — that's a CORE milestone, not GUI).
+
+## Next: GPU-4 (different machine) / PKG
 
 - **GPU-4: CUDA on a discrete NVIDIA GPU — see `docs/gpu4-cuda/RUNBOOK.md`** (runs on another machine;
   settles the big-canvas GPU-vs-fogleman number the Mac can't produce). i64 is native on CUDA.
-- GUI-2: §5A interaction-state polish + a11y. PKG-1/2: codesign + notarize — **interactive only**
-  (Apple credentials), never under auto-mode.
+- **PKG-1 Part A** (macOS bundle scaffolding — Info.plist, icons, `[package.metadata.bundle]`,
+  `scripts/ops/sign-notarize.sh` that HALTS before codesign): autonomous, no credentials.
+- **PKG-1 Part B** (codesign → create-dmg → notarytool → staple) + **PKG-2** (Windows): **interactive
+  only** (Apple/Windows credentials), never under auto-mode / `/goal`.
