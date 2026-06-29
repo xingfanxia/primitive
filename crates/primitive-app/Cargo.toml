@@ -1,0 +1,24 @@
+[package]
+name = "primitive-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# The GUI binary is named `primitive` (the product), the crate `primitive-app` (the composition root).
+[[bin]]
+name = "primitive"
+path = "src/main.rs"
+
+[dependencies]
+# Composition root — the ONLY place adapters are imported (plan §5 import-direction rule).
+primitive-core = { path = "../primitive-core" }
+primitive-compute = { path = "../primitive-compute" }
+primitive-engine = { path = "../primitive-engine" }
+primitive-gpu-cpu = { path = "../primitive-gpu-cpu" }
+
+# Pinned to 0.34 (plan §Standing rules): 0.35 reworked the App trait (ui()-based) and dropped
+# SidePanel/TopBottomPanel — 0.34's conventional update(ctx,frame)+panels API is the documented one.
+eframe = "0.34"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
+rfd = "0.17"

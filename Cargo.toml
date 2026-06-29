@@ -6,9 +6,10 @@ members = [
     "crates/primitive-gpu-cpu",
     "crates/primitive-gpu-cubecl",
     "crates/primitive-engine",
+    "crates/primitive-app",
 ]
 
-# The GUI crate (primitive-app) is added at the GUI-1 milestone. The GPU adapter
+# primitive-app is the GUI shell / composition root (GUI-1, plan §5/§5A). The GPU adapter
 # (primitive-gpu-cubecl) implements the same ShapeSearch port as the CPU oracle
 # (see docs/plan/primitive-2026-architecture.md §6/§7).
 

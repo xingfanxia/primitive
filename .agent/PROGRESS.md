@@ -120,7 +120,31 @@ hold quality at 4× the pixels). The big-canvas GPU win needs a *discrete* GPU �
 (CUDA), not a Metal size unlock. Remaining 64×64 polish (energy-map CDF restart, incremental scoring)
 is ~1.1–1.3× and optional; a parallel tree-argmin is not the hot path.
 
-## Next: GPU-4 / GUI / PKG (interactive — credentials)
+## GUI-1 — eframe shell + live canvas — ✅ DONE (2026-06-28)
 
-GPU-4: CUDA backend (CubeCL cuda feature) + i64/large-target path. GUI-1/2: eframe shell. PKG-1/2:
-codesign + notarize — **must run interactively** (Apple credentials), never under auto-mode.
+`primitive-app` crate (the composition root; the binary is `primitive`). One-window single-document
+tool per §5A: hero **live canvas** + quiet 320 px sidebar (Source · Shapes · actions), drop/Browse +
+bundled samples, count/alpha sliders, Start/Pause/Resume/Reset, PNG/SVG export, device chip.
+
+The optimizer runs on a **background thread** (`runner.rs`) streaming a canvas snapshot + progress
+per committed shape; the UI drains to the latest frame each repaint (the §5A spectacle). GUI-1 drives
+the **CPU adapter** — the live/watchable backend (the GPU's 519 sps finishes 250 shapes in <1 s, no
+spectacle; wiring a GPU "instant" mode is a later increment). Modules: `main`/`app`/`sidebar`/
+`runner`/`image_io`, all ≤ size gate.
+
+- **eframe pinned to 0.34** (not 0.35): 0.35 reworked the `App` trait to `ui()`-only and dropped
+  `SidePanel`/`TopBottomPanel`. 0.34.3 already made `ui(&mut self, ui, frame)` the required method —
+  panels are shown *inside* the root `ui` via `show_inside`, ctx via `ui.ctx()`.
+- **Gate evidence** (machine-checkable, plan §5A — fps/zero-copy need a screenshot, not gated):
+  `runner::tests::smoke_load_run_export_svg` decodes a bundled image → runs 25 shapes → exports SVG
+  (`<svg` root + `polygon` elements). Green in `make verify`. Launch: `cargo run -p primitive-app --release`.
+
+Carry-forward (GUI-2): full §5A interaction-state polish (toasts/Reveal-in-Finder, mid-run SVG, sample
+thumbnails, keyboard shortcuts, AccessKit a11y, Reduce-Motion); optional GPU "instant" run mode.
+
+## Next: GPU-4 (different machine) / GUI-2 / PKG
+
+- **GPU-4: CUDA on a discrete NVIDIA GPU — see `docs/gpu4-cuda/RUNBOOK.md`** (runs on another machine;
+  settles the big-canvas GPU-vs-fogleman number the Mac can't produce). i64 is native on CUDA.
+- GUI-2: §5A interaction-state polish + a11y. PKG-1/2: codesign + notarize — **interactive only**
+  (Apple credentials), never under auto-mode.
