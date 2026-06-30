@@ -17,8 +17,9 @@ pub struct Scanline {
 
 /// Clamp to `[lo, hi]` with fogleman's `clampInt` semantics (lower bound wins when `lo > hi`).
 /// Identical to `max(lo).min(hi)` for the `lo <= hi` inputs `crop_scanlines` always passes.
+/// `pub(crate)` so the integer rasterizers in [`crate::raster_int`] share this one clamp.
 #[inline]
-fn clamp_i32(x: i32, lo: i32, hi: i32) -> i32 {
+pub(crate) fn clamp_i32(x: i32, lo: i32, hi: i32) -> i32 {
     if x < lo {
         lo
     } else if x > hi {
@@ -217,96 +218,5 @@ pub fn rasterize_rectangle(x1: i32, y1: i32, x2: i32, y2: i32, buf: &mut Vec<Sca
             x2: xb,
             alpha: 0xffff,
         });
-    }
-}
-
-// ── Deterministic integer rasterizer (the GPU-shared path) ───────────────────────────────
-//
-// `rasterize_triangle` above is fogleman's f64 edge-walk — the *reference* raster (CORE/golden).
-// Metal has no f64, so the GPU path uses the integer edge-function rasterizer below instead:
-// pure i32 arithmetic, trivially identical on CPU and GPU (no float rounding to diverge on), so
-// the GPU and its CPU oracle cover the exact same pixels (plan §6.6). Coverage differs from the
-// f64 reference by sub-pixel edges — that is expected and fine; this is the deterministic
-// production path, the f64 one stays the historical reference.
-
-/// Twice the signed area of triangle `(a, b, p)` — the integer edge function. Inside a triangle,
-/// all three edge functions share one sign (positive for CCW, negative for CW).
-#[inline]
-pub fn edge(ax: i32, ay: i32, bx: i32, by: i32, px: i32, py: i32) -> i32 {
-    (bx - ax) * (py - ay) - (by - ay) * (px - ax)
-}
-
-/// Is pixel `(px, py)` inside (or on the boundary of) the triangle? Integer, winding-agnostic.
-#[inline]
-pub fn triangle_inside(t: [i32; 6], px: i32, py: i32) -> bool {
-    let e0 = edge(t[0], t[1], t[2], t[3], px, py);
-    let e1 = edge(t[2], t[3], t[4], t[5], px, py);
-    let e2 = edge(t[4], t[5], t[0], t[1], px, py);
-    (e0 >= 0 && e1 >= 0 && e2 >= 0) || (e0 <= 0 && e1 <= 0 && e2 <= 0)
-}
-
-/// Deterministic integer rasterization of a triangle into cropped scanlines.
-///
-/// Scans the clamped bounding box and emits, per row, the contiguous covered run (valid
-/// triangles are convex, so inside pixels on a row are contiguous). This is the rasterizer the
-/// GPU kernel reproduces pixel-for-pixel.
-pub fn rasterize_triangle_int(t: [i32; 6], w: i32, h: i32, buf: &mut Vec<Scanline>) {
-    let xmin = clamp_i32(t[0].min(t[2]).min(t[4]), 0, w - 1);
-    let xmax = clamp_i32(t[0].max(t[2]).max(t[4]), 0, w - 1);
-    let ymin = clamp_i32(t[1].min(t[3]).min(t[5]), 0, h - 1);
-    let ymax = clamp_i32(t[1].max(t[3]).max(t[5]), 0, h - 1);
-    for py in ymin..=ymax {
-        let mut lo = -1;
-        let mut hi = -1;
-        for px in xmin..=xmax {
-            if triangle_inside(t, px, py) {
-                if lo < 0 {
-                    lo = px;
-                }
-                hi = px;
-            }
-        }
-        if lo >= 0 {
-            buf.push(Scanline {
-                y: py,
-                x1: lo,
-                x2: hi,
-                alpha: 0xffff,
-            });
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn int_raster_coverage_is_contiguous_and_inside() {
-        let t = [2, 2, 30, 6, 10, 28];
-        let mut buf = Vec::new();
-        rasterize_triangle_int(t, 32, 32, &mut buf);
-        assert!(!buf.is_empty());
-        for s in &buf {
-            assert!(s.x1 <= s.x2);
-            // every pixel in the emitted run is actually inside
-            for x in s.x1..=s.x2 {
-                assert!(triangle_inside(t, x, s.y), "({x},{}) not inside", s.y);
-            }
-            // the pixel just left of the run is outside (run is the maximal inside span)
-            if s.x1 > 0 {
-                assert!(!triangle_inside(t, s.x1 - 1, s.y));
-            }
-        }
-    }
-
-    #[test]
-    fn int_raster_is_deterministic() {
-        let t = [1, 0, 20, 5, 7, 19];
-        let mut a = Vec::new();
-        let mut b = Vec::new();
-        rasterize_triangle_int(t, 24, 24, &mut a);
-        rasterize_triangle_int(t, 24, 24, &mut b);
-        assert_eq!(a, b);
     }
 }

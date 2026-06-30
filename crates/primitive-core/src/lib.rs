@@ -33,6 +33,7 @@ pub mod model;
 pub mod optimizer;
 pub mod philox;
 pub mod raster;
+pub mod raster_int;
 pub mod rng;
 pub mod score;
 pub mod shape;
@@ -43,7 +44,11 @@ pub use eval::candidate_color_and_delta;
 pub use model::{psnr_from_score, AddedShape, Model};
 pub use optimizer::{Ctx, SearchBudget, Searcher, State};
 pub use philox::{mulhilo, philox, rand_below, rand_u32};
-pub use raster::{rasterize_triangle_int, triangle_inside, Scanline};
+pub use raster::Scanline;
+pub use raster_int::{
+    ellipse_inside, rasterize_ellipse_int, rasterize_rectangle_int, rasterize_triangle_int,
+    triangle_inside,
+};
 pub use rng::Rng;
 pub use score::{delta_sse_partial, difference_full, difference_partial, sse_full};
 pub use shape::{Ellipse, Rectangle, Shape, ShapeType, Triangle};
