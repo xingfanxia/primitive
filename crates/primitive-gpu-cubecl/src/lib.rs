@@ -182,6 +182,15 @@ impl GpuSession {
     /// Rasterize + score every **ellipse** candidate on the GPU (CORE-3b.2); integer delta-SSE per
     /// candidate, exact vs `rasterize_ellipse_int` + `candidate_color_and_delta` on the CPU.
     pub fn score_ellipses(&self, b: &EllipseBatch) -> Vec<i32> {
+        // The in-kernel `inside_ellipse` test is i32 (Metal has no i64). Its degree-4 product
+        // `ry²·dx²` overflows once an operand exceeds ~181 (radii ≤ w-1 ≤ h-1), so the GPU agrees with
+        // the i64 CPU oracle only within this canvas bound (§6.6). The app caps at 128 (GPU_INSTANT_MAX).
+        debug_assert!(
+            self.w <= 182 && self.h <= 182,
+            "score_ellipses: {}×{} canvas exceeds the i32-safe bound (radii could overflow the i32 GPU ellipse test; §6.6)",
+            self.w,
+            self.h
+        );
         let n = b.alphas.len();
         let ells_h = self.client.create_from_slice(bytemuck::cast_slice(&b.ells));
         let alpha_h = self

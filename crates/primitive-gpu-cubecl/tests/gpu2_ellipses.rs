@@ -37,7 +37,12 @@ fn gpu2_ellipse_raster_score_matches_cpu_exactly() {
     let mut cpu = Vec::with_capacity(N);
 
     for _ in 0..N {
-        let shape = Shape::random(ShapeType::Ellipse, W as i32, H as i32, &mut rng);
+        let mut shape = Shape::random(ShapeType::Ellipse, W as i32, H as i32, &mut rng);
+        // Mutate a few times so the gate exercises the larger-radii / near-edge-centre domain the
+        // CORE-3b.3 hill-climb will feed these kernels — not just freshly-rolled (rx,ry ≤ 32) shapes.
+        for _ in 0..4 {
+            shape.mutate(W as i32, H as i32, &mut rng);
+        }
         let [cx, cy, rx, ry] = shape.ellipse_coords();
         buf.clear();
         rasterize_ellipse_int(cx, cy, rx, ry, W as i32, H as i32, &mut buf);

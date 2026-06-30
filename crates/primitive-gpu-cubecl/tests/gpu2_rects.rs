@@ -36,7 +36,12 @@ fn gpu2_rect_raster_score_matches_cpu_exactly() {
     let mut cpu = Vec::with_capacity(N);
 
     for _ in 0..N {
-        let shape = Shape::random(ShapeType::Rectangle, W as i32, H as i32, &mut rng);
+        let mut shape = Shape::random(ShapeType::Rectangle, W as i32, H as i32, &mut rng);
+        // Mutate a few times so the gate exercises the larger / near-edge rects the CORE-3b.3
+        // hill-climb will feed these kernels — not just freshly-rolled shapes.
+        for _ in 0..4 {
+            shape.mutate(W as i32, H as i32, &mut rng);
+        }
         let [x1, y1, x2, y2] = shape.rectangle_coords();
         buf.clear();
         rasterize_rectangle_int(x1, y1, x2, y2, W as i32, H as i32, &mut buf);

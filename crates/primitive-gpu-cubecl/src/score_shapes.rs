@@ -36,10 +36,15 @@ pub fn score_one_ellipse(
     height: i32,
 ) -> i32 {
     let a_coef = 65535 / alpha;
-    let xmin = clampi(cx - rx, 0, width - 1);
-    let xmax = clampi(cx + rx, 0, width - 1);
-    let ymin = clampi(cy - ry, 0, height - 1);
-    let ymax = clampi(cy + ry, 0, height - 1);
+    // Mirror the CPU `rasterize_ellipse_int`'s `(rx.abs(), ry.abs())` so a negative radius can't
+    // invert the bbox into an empty loop (unreachable today — radii clamp ≥ 1 — but keeps the kernel
+    // a true mirror of its oracle rather than correct only by precondition).
+    let arx = if rx < 0 { -rx } else { rx };
+    let ary = if ry < 0 { -ry } else { ry };
+    let xmin = clampi(cx - arx, 0, width - 1);
+    let xmax = clampi(cx + arx, 0, width - 1);
+    let ymin = clampi(cy - ary, 0, height - 1);
+    let ymax = clampi(cy + ary, 0, height - 1);
 
     let mut rsum = 0i32;
     let mut gsum = 0i32;
@@ -47,7 +52,7 @@ pub fn score_one_ellipse(
     let mut count = 0i32;
     for py in ymin..ymax + 1 {
         for px in xmin..xmax + 1 {
-            if inside_ellipse(cx, cy, rx, ry, px, py) {
+            if inside_ellipse(cx, cy, arx, ary, px, py) {
                 let idx = ((py * width + px) * 4) as usize;
                 rsum += (target[idx] - current[idx]) * a_coef + current[idx] * 257;
                 gsum += (target[idx + 1] - current[idx + 1]) * a_coef + current[idx + 1] * 257;
@@ -70,7 +75,7 @@ pub fn score_one_ellipse(
         let aa = (65535 - sa * 65535 / 65535) * 257;
         for py in ymin..ymax + 1 {
             for px in xmin..xmax + 1 {
-                if inside_ellipse(cx, cy, rx, ry, px, py) {
+                if inside_ellipse(cx, cy, arx, ary, px, py) {
                     let idx = ((py * width + px) * 4) as usize;
                     delta += channel_delta(target[idx], current[idx], sr, aa);
                     delta += channel_delta(target[idx + 1], current[idx + 1], sg, aa);
@@ -104,6 +109,10 @@ pub fn score_one_rect(
     let xb = if x1 < x2 { x2 } else { x1 };
     let ya = if y1 < y2 { y1 } else { y2 };
     let yb = if y1 < y2 { y2 } else { y1 };
+    // Mirror the CPU `rasterize_rectangle_int`'s off-canvas drop: a fully-off-canvas rect scores 0
+    // (count stays 0) rather than saturating clampi into a phantom 1-px edge column. Unreachable
+    // today (corners clamp in-bounds) but keeps the kernel a true mirror of its oracle.
+    let in_bounds = xb >= 0 && xa < width && yb >= 0 && ya < height;
     let xmin = clampi(xa, 0, width - 1);
     let xmax = clampi(xb, 0, width - 1);
     let ymin = clampi(ya, 0, height - 1);
@@ -113,13 +122,15 @@ pub fn score_one_rect(
     let mut gsum = 0i32;
     let mut bsum = 0i32;
     let mut count = 0i32;
-    for py in ymin..ymax + 1 {
-        for px in xmin..xmax + 1 {
-            let idx = ((py * width + px) * 4) as usize;
-            rsum += (target[idx] - current[idx]) * a_coef + current[idx] * 257;
-            gsum += (target[idx + 1] - current[idx + 1]) * a_coef + current[idx + 1] * 257;
-            bsum += (target[idx + 2] - current[idx + 2]) * a_coef + current[idx + 2] * 257;
-            count += 1;
+    if in_bounds {
+        for py in ymin..ymax + 1 {
+            for px in xmin..xmax + 1 {
+                let idx = ((py * width + px) * 4) as usize;
+                rsum += (target[idx] - current[idx]) * a_coef + current[idx] * 257;
+                gsum += (target[idx + 1] - current[idx + 1]) * a_coef + current[idx + 1] * 257;
+                bsum += (target[idx + 2] - current[idx + 2]) * a_coef + current[idx + 2] * 257;
+                count += 1;
+            }
         }
     }
 

@@ -268,7 +268,11 @@ make verify ...................................................... verify: ALL G
 ```
 The `score_ellipses`/`score_rectangles` kernels (new `score_shapes.rs`: in-kernel integer raster via
 `inside_ellipse` / the rect bbox + the proven `score_one` color+delta math) reproduce
-`rasterize_ellipse_int`/`rasterize_rectangle_int` + `candidate_color_and_delta` exactly for 1000 random
-candidates each. Host: `EllipseBatch`/`RectBatch` + `GpuSession::score_ellipses`/`score_rects` +
-one-shot `gpu_score_ellipses`/`gpu_score_rectangles`; `Shape::ellipse_coords`/`rectangle_coords`
-accessors. Scorer only — the GPU search loop (`evolve`/`commit`) is CORE-3b.3.
+`rasterize_ellipse_int`/`rasterize_rectangle_int` + `candidate_color_and_delta` exactly for 1000
+candidates each (each **mutated 4×** so the gate covers the larger-radii / near-edge domain the 3b.3
+search will feed, not just freshly-rolled shapes). Host: `EllipseBatch`/`RectBatch` +
+`GpuSession::score_ellipses`/`score_rects` + one-shot `gpu_score_ellipses`/`gpu_score_rectangles`;
+`Shape::ellipse_coords`/`rectangle_coords` accessors. Review hardening (true-mirror, not
+correct-by-precondition): the kernels now `.abs()` radii + drop fully-off-canvas rects like their CPU
+oracles, and `score_ellipses` `debug_assert`s the ≤182-px i32-safe canvas bound at dispatch. Scorer
+only — the GPU search loop (`evolve`/`commit`) is CORE-3b.3.
