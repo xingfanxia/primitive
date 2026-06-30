@@ -60,9 +60,15 @@ pub fn rasterize_triangle_int(t: [i32; 6], w: i32, h: i32, buf: &mut Vec<Scanlin
 /// Is pixel `(px, py)` inside (or on the boundary of) the axis-aligned ellipse centred `(cx, cy)`
 /// with radii `(rx, ry)`? The integer implicit test `ry²·dx² + rx²·dy² ≤ rx²·ry²` — no `sqrt`, so
 /// it's trivially identical on CPU and GPU (the integer analogue of [`triangle_inside`]). Squaring
-/// makes the sign of `rx`/`ry` irrelevant. Computed in `i64`: `ry²·dx²` overflows `i32` past ~46k px,
-/// so the GPU mirror (i32) is valid only within the documented canvas bound (§6.6), where the two
-/// agree bit-for-bit because no overflow occurs.
+/// makes the sign of `rx`/`ry` irrelevant. Computed in `i64`.
+///
+/// **i32-mirror overflow domain.** Each term `ry·ry·dx·dx` is a **degree-4** product, so the i32 GPU
+/// mirror is overflow-free only while every operand stays ≲ **181** (`2·n⁴ < i32::MAX` at `n ≈ 181`) —
+/// **not** the `~46k` of a single `ry²` (that is the f64 path's bound, `raster.rs`). The ≤128-px GPU
+/// canvas (`runner.rs` `GPU_INSTANT_MAX`), with radii clamped to `w-1`/`h-1`, keeps the peak at
+/// `2·128⁴ ≈ 5.4e8` — ~4× under i32::MAX — so CPU-i64 and GPU-i32 agree bit-for-bit there. Raising the
+/// canvas cap past ~181 px would silently diverge the GPU; see the `debug_assert` in
+/// [`rasterize_ellipse_int`].
 #[inline]
 pub fn ellipse_inside(cx: i32, cy: i32, rx: i32, ry: i32, px: i32, py: i32) -> bool {
     let dx = (px - cx) as i64;
@@ -85,6 +91,13 @@ pub fn rasterize_ellipse_int(
     buf: &mut Vec<Scanline>,
 ) {
     let (rx, ry) = (rx.abs(), ry.abs());
+    // The i32 GPU mirror overflows once an operand exceeds ~181 (degree-4 product, see
+    // `ellipse_inside`); the ≤128-px GPU canvas keeps us ~4× clear. CPU is i64 so this never overflows
+    // *here* — the assert flags a too-large ellipse that would diverge the GPU before it ships.
+    debug_assert!(
+        rx < 182 && ry < 182,
+        "rasterize_ellipse_int: rx/ry ≥ 182 overflows the i32 GPU mirror (§6.6)"
+    );
     let xmin = clamp_i32(cx - rx, 0, w - 1);
     let xmax = clamp_i32(cx + rx, 0, w - 1);
     let ymin = clamp_i32(cy - ry, 0, h - 1);
@@ -124,10 +137,19 @@ pub fn rasterize_rectangle_int(
     h: i32,
     buf: &mut Vec<Scanline>,
 ) {
-    let xlo = clamp_i32(x1.min(x2), 0, w - 1);
-    let xhi = clamp_i32(x1.max(x2), 0, w - 1);
-    let ylo = clamp_i32(y1.min(y2), 0, h - 1);
-    let yhi = clamp_i32(y1.max(y2), 0, h - 1);
+    let (xa, xb) = (x1.min(x2), x1.max(x2));
+    let (ya, yb) = (y1.min(y2), y1.max(y2));
+    // Fully off-canvas → emit nothing, matching the f64 reference's crop (`crop_scanlines` drops a
+    // run with `x1 >= w` / `x2 < 0`) instead of saturating `clamp_i32` into a phantom 1-px edge
+    // column. Production never feeds an off-canvas rect (corners are clamped in `Rectangle`), so this
+    // only hardens the degenerate case; in-bounds rects are unaffected.
+    if xb < 0 || xa >= w || yb < 0 || ya >= h {
+        return;
+    }
+    let xlo = clamp_i32(xa, 0, w - 1);
+    let xhi = clamp_i32(xb, 0, w - 1);
+    let ylo = clamp_i32(ya, 0, h - 1);
+    let yhi = clamp_i32(yb, 0, h - 1);
     for py in ylo..=yhi {
         buf.push(Scanline {
             y: py,
@@ -274,24 +296,50 @@ mod tests {
             assert_eq!((s.x1, s.x2), (0, 5), "x clamped to [0, 5]");
             assert!(s.y >= 0 && s.y < 10);
         }
+        // a rect fully off the right edge emits nothing — drops like the f64 reference, no phantom
+        // 1-px column at x=w-1 (the saturating-clamp divergence the review flagged).
+        let mut offscreen = Vec::new();
+        rasterize_rectangle_int(200, 0, 200, 5, 10, 10, &mut offscreen);
+        assert!(
+            offscreen.is_empty(),
+            "fully off-canvas rect drops, no phantom edge column"
+        );
     }
 
     #[test]
-    fn int_ellipse_roughly_matches_f64_reference() {
-        // the integer implicit test and fogleman's f64 scanline raster cover nearly the same pixels
-        // (sub-pixel edges differ, as for triangles); assert the covered-pixel counts agree to ≤ 8%.
+    fn int_ellipse_matches_f64_reference_per_row() {
+        // A real shape oracle (not just total area — that can't distinguish a shifted/distorted
+        // ellipse with the same pixel count): the integer raster and fogleman's f64 scanline raster
+        // agree on each row's span width to ≤ 2px (sub-pixel edges differ, as for triangles), and
+        // disagree on whether a row is covered for at most the 2 extreme rows (the integer test
+        // includes the single centre-column pixel at `cy ± ry` that fogleman's `dy in 0..ry` loop
+        // stops just short of). Total area within ≤ 8% as a coarse backstop.
         let (cx, cy, rx, ry) = (24, 24, 14, 9);
-        let mut iref = Vec::new();
-        rasterize_ellipse(cx, cy, rx, ry, 50, 50, &mut iref);
+        let mut fref = Vec::new();
+        rasterize_ellipse(cx, cy, rx, ry, 50, 50, &mut fref);
         let mut iint = Vec::new();
         rasterize_ellipse_int(cx, cy, rx, ry, 50, 50, &mut iint);
-        let area = |b: &[Scanline]| b.iter().map(|s| (s.x2 - s.x1 + 1) as i64).sum::<i64>();
-        let (fa, ia) = (area(&iref), area(&iint));
-        let diff = (fa - ia).abs() as f64 / fa as f64;
+        let width = |b: &[Scanline], y: i32| b.iter().find(|s| s.y == y).map(|s| s.x2 - s.x1 + 1);
+        let mut coverage_mismatches = 0;
+        for y in (cy - ry)..=(cy + ry) {
+            match (width(&fref, y), width(&iint, y)) {
+                (Some(fw), Some(iw)) => assert!(
+                    (fw - iw).abs() <= 2,
+                    "row {y}: f64 width {fw} vs int width {iw} differ > 2px"
+                ),
+                (None, None) => {}
+                _ => coverage_mismatches += 1,
+            }
+        }
         assert!(
-            diff <= 0.08,
-            "int ellipse area {ia} vs f64 {fa} differ {:.1}%",
-            diff * 100.0
+            coverage_mismatches <= 2,
+            "rasters disagree on coverage for {coverage_mismatches} rows (> 2 extreme rows)"
+        );
+        let area = |b: &[Scanline]| b.iter().map(|s| (s.x2 - s.x1 + 1) as i64).sum::<i64>();
+        let (fa, ia) = (area(&fref), area(&iint));
+        assert!(
+            (fa - ia).abs() as f64 / fa as f64 <= 0.08,
+            "int ellipse area {ia} vs f64 {fa} differ > 8%"
         );
     }
 }

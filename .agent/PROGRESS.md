@@ -283,12 +283,15 @@ Gate evidence (all green in `make verify`; `crates/primitive-core/src/raster_int
   each axis and the bbox corner are outside.
 - **`int_ellipse_raster_is_contiguous_inside_and_symmetric`** — every emitted pixel inside, maximal run,
   each row's span centred on `cx` (`x1+x2 == 2·cx`), vertical symmetry (`cy−k`/`cy+k` identical).
-- **`int_ellipse_roughly_matches_f64_reference`** — integer raster covers within **8%** of fogleman's f64
-  scanline area (sub-pixel edges differ, as for triangles).
+- **`int_ellipse_matches_f64_reference_per_row`** — per-row span widths agree with fogleman's f64 raster
+  to ≤ 2px (a real shape oracle: total-area alone can't catch a shifted/distorted ellipse), ≤ 2 extreme
+  rows of coverage mismatch, total area within 8%.
 - **`int_rect_raster_clamps_and_spans_corner_order_invariant`** — full-width span/row, corner-order
   invariant, cropped to the image (never out of bounds).
 - determinism (ellipse + the carried-over triangle int tests) byte-identical.
 
 Carry-forward: these are **not yet GPU-wired** — CORE-3b.2 generalizes the score kernel to consume them
 on-device with GPU↔CPU bit-identical parity (like GPU-2 for triangles), then 3b.3 the `evolve`/`commit`
-search loop.
+search loop. Minor debt (review NIT, deferred to avoid a rename-only change): `shape.rs` has a private
+`clamp_i32` byte-identical to `raster.rs`'s now-`pub(crate)` one — fold the duplicate into the next
+`shape.rs` touch.
