@@ -12,7 +12,13 @@ use cubecl::prelude::*;
 /// steers toward. L2 (matches `core::energy_map::residual_map`) biases harder toward hot pixels than
 /// L1 did, so the best-of-N anchor lands nearer the real error peaks. Max 3·255² = 195075, fits i32.
 #[cube]
-fn residual(target: &Array<i32>, current: &Array<i32>, px: i32, py: i32, width: i32) -> i32 {
+pub(crate) fn residual(
+    target: &Array<i32>,
+    current: &Array<i32>,
+    px: i32,
+    py: i32,
+    width: i32,
+) -> i32 {
     let idx = ((py * width + px) * 4) as usize;
     let dr = target[idx] - current[idx];
     let dg = target[idx + 1] - current[idx + 1];

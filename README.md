@@ -44,8 +44,8 @@ This repository contains three implementations of the Primitive algorithm:
 A from-scratch Rust rewrite (hexagonal crates under [`crates/`](crates/)) that runs the whole search on the
 GPU via CubeCL→Metal with **bitwise-deterministic integer scoring**, plus a one-window `eframe` desktop app
 whose hero is the live reconstruction canvas. Shapes: triangle, ellipse, and axis-aligned rectangle —
-selectable in the app, running live on the CPU path (GPU kernels for ellipse/rect are the next core slice;
-rotated/curved variants follow). Spec + status: [`docs/plan/primitive-2026-architecture.md`](docs/plan/primitive-2026-architecture.md),
+selectable in the app, fitted on both the CPU path and fully on-device on the GPU (rotated/curved variants
+follow). Spec + status: [`docs/plan/primitive-2026-architecture.md`](docs/plan/primitive-2026-architecture.md),
 [`AGENTS.md`](AGENTS.md), [`.agent/PROGRESS.md`](.agent/PROGRESS.md).
 
 ```bash

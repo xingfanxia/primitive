@@ -276,3 +276,18 @@ search will feed, not just freshly-rolled shapes). Host: `EllipseBatch`/`RectBat
 correct-by-precondition): the kernels now `.abs()` radii + drop fully-off-canvas rects like their CPU
 oracles, and `score_ellipses` `debug_assert`s the ≤182-px i32-safe canvas bound at dispatch. Scorer
 only — the GPU search loop (`evolve`/`commit`) is CORE-3b.3.
+
+## CORE-3 Part B.3 — on-device search loop for ellipse + rectangle (2026-06-30)
+
+### GPU-native ellipse/rect search ≈ CPU quality — `crates/primitive-gpu-cubecl/tests/`
+```
+gpu3_ellipse_optimize.rs::gpu3_ellipse_search_matches_cpu_psnr ... ok  CPU 34.31 dB | GPU 33.99 dB | gap -0.32 dB
+gpu3_rect_optimize.rs::gpu3_rect_search_matches_cpu_psnr ......... ok  CPU 35.50 dB | GPU 35.13 dB | gap -0.37 dB
+make verify ..................................................... verify: ALL GREEN (on Metal)
+```
+80 shapes, 64×64. `evolve_ellipse`/`evolve_rect` + `commit_ellipse`/`commit_rect` (new
+`search_shapes.rs`) run the whole search GPU-resident: energy-anchored, Rechenberg 1/5 self-adaptive
+hill-climb over the shape params (all clamped to the canvas → i32-safe), scored by the parity-exact
+`score_one_ellipse`/`score_one_rect`, committed over the same coverage. Independent of the CPU search
+(GPU-native), so compared by **PSNR within 1.0 dB** — both land within 0.4 dB. `OptConfig.shape_type`
+selects the kernel triplet in `gpu_optimize`. **CORE-3b complete**: the GPU fits all three shapes.

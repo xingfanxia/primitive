@@ -15,7 +15,7 @@ use crate::kernels::{channel_delta, clamp_0_255, clampi};
 /// (`ry²·dx² + rx²·dy² ≤ rx²·ry²`, no `sqrt`). i32; overflow-free within the ≤128-px canvas bound
 /// (the degree-4 product peaks at `2·128⁴ ≈ 5.4e8`, ~4× under i32::MAX — §6.6).
 #[cube]
-fn inside_ellipse(cx: i32, cy: i32, rx: i32, ry: i32, px: i32, py: i32) -> bool {
+pub(crate) fn inside_ellipse(cx: i32, cy: i32, rx: i32, ry: i32, px: i32, py: i32) -> bool {
     let dx = px - cx;
     let dy = py - cy;
     ry * ry * dx * dx + rx * rx * dy * dy <= rx * rx * ry * ry

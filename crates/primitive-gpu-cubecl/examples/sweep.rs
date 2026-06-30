@@ -66,6 +66,7 @@ fn main() {
             shapes: 2,
             alpha,
             seed: 9,
+            shape_type: ShapeType::Triangle,
         },
     );
 
@@ -86,6 +87,7 @@ fn main() {
             shapes,
             alpha,
             seed: 1,
+            shape_type: ShapeType::Triangle,
         };
         let t = Instant::now();
         let recon = gpu_optimize(&target, &cfg);

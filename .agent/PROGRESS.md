@@ -218,11 +218,12 @@ Gate evidence (all green in `make verify`; `crates/primitive-core/tests/shapes.r
   flat-background baseline** (PSNR 32.15 / 33.07 dB); SVG export emits valid `<ellipse>` / `<rect>`.
 
 Scope notes (carry-forward, by design):
-- **CORE-3b (GPU)**: staged in three. **3b.1 (integer rasterizers) + 3b.2 (on-device score kernels)
-  ✅ DONE** — see Part B.1 / B.2 below. **3b.3 remains**: the GPU *search loop* (`evolve`/`commit`) is
-  still triangle-specific (in-kernel random/mutate over 6-int triangles), so GPU instant mode in the app
-  stays triangle-only (`runner::should_use_gpu`). 3b.3 = generalize `evolve`/`commit` (in-kernel
-  random/mutate + the scanline scorer per shape type) so ellipse/rect get the full on-device search.
+- **CORE-3b (GPU) ✅ DONE** (all three): **3b.1** integer rasterizers, **3b.2** on-device score kernels,
+  **3b.3** on-device search loop (`evolve_ellipse`/`evolve_rect` + `commit_*`) — see Part B.1/B.2/B.3.
+  The GPU now fits triangles, ellipses, and rects fully on-device (gated by PSNR within tolerance of the
+  CPU search). The app keeps routing ellipse/rect to the CPU streaming path by default (it preserves the
+  SVG export + live spectacle the raster-only GPU instant mode can't) — flipping `runner::should_use_gpu`
+  to offer a GPU fast-preview for the new shapes is now a one-line guard change, deferred as a UX call.
 - **CORE-3c (GUI)**: ✅ DONE — see the Part C section below.
 - **CORE-3a.2 (rigour)**: fogleman **bit-exact** parity for ellipse/rect needs the Go dumper
   (`go_primitive/primitive/parity_dump_test.go`, schema is triangle-only) extended; until then the
@@ -323,3 +324,29 @@ Cleanup folded in (3b.1 review NIT): `shape.rs`'s private `clamp_i32` removed �
 Carry-forward: this is the **scorer** only. CORE-3b.3 generalizes the GPU *search loop*
 (`search::evolve`/`commit` — in-kernel random/mutate per shape type) so the app's GPU instant mode can
 drop the triangle-only guard and run ellipse/rect fully on-device.
+
+## CORE-3 Part B.3 — on-device search loop for ellipse + rectangle — ✅ DONE (2026-06-30)
+
+The **whole search runs GPU-resident** for ellipses and rects now, not just triangles — the GPU-3
+triangle loop generalized. New module `crates/primitive-gpu-cubecl/src/search_shapes.rs`:
+
+- **`evolve_ellipse`** / **`evolve_rect`** — one independent hill-climb per worker: a shared
+  energy-targeted `anchor` (best-of-8 high-residual pixels) seeds the centre/first-corner; small random
+  radii / opposite corner; then `age` **Rechenberg 1/5 self-adaptive** perturbations of one param
+  (`{cx,cy,rx,ry}` / the four corners), each clamped to the canvas (radii to `[1,w-1]` — keeps the i32
+  ellipse test overflow-safe, §6.6), keeping a change only if it lowers the delta-SSE (scored by the
+  parity-exact `score_one_ellipse`/`score_one_rect`). Writes best delta + best 4-int params.
+- **`commit_ellipse`** / **`commit_rect`** — fused argmin + composite the improving step winner over the
+  bbox+`inside_ellipse` / bbox coverage, in place, no host sync. Mirrors triangle `commit`.
+- Host: `OptConfig.shape_type` selects the kernel triplet; `gpu_optimize` matches on it (best-param
+  buffer 6 ints for triangle, 4 for ellipse/rect). Like GPU-3, the GPU is a **native** optimizer, not a
+  replay of the CPU search — compared by **PSNR**, not pixels.
+
+Gate evidence (hardware-independent → unconditional in `make verify`):
+- **`gpu3_ellipse_optimize.rs`** — 80 shapes, 64×64: **GPU 33.99 dB vs CPU 34.31 dB, gap −0.32 dB**
+  (≤ 1.0 dB tolerance).
+- **`gpu3_rect_optimize.rs`** — 80 shapes, 64×64: **GPU 35.13 dB vs CPU 35.50 dB, gap −0.37 dB**.
+
+App: `runner::gpu_instant` plumbs `cfg.shape_type` into `OptConfig`; the `should_use_gpu` guard stays
+triangle-only by choice (ellipse/rect keep the CPU path's SVG + streaming). **CORE-3b is complete** —
+the GPU fits all three shapes.

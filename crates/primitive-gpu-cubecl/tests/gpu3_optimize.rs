@@ -72,6 +72,7 @@ fn gpu3_end_to_end_meets_throughput_and_psnr_gates() {
         shapes: 2,
         alpha: ALPHA,
         seed: 9,
+        shape_type: ShapeType::Triangle,
     };
     let _ = gpu_optimize(&target, &warm);
 
@@ -83,6 +84,7 @@ fn gpu3_end_to_end_meets_throughput_and_psnr_gates() {
         shapes: SHAPES,
         alpha: ALPHA,
         seed: 1,
+        shape_type: ShapeType::Triangle,
     };
     let t_gpu = Instant::now();
     let recon = gpu_optimize(&target, &cfg);
