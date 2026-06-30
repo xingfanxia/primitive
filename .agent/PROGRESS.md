@@ -221,9 +221,35 @@ Scope notes (carry-forward, by design):
 - **CORE-3b (GPU)**: the GPU batch path is triangle-specific (`TriangleBatch`, `score_triangles`,
   `evolve`/`commit` all assume 6-int triangles); `Shape::triangle_coords()` **panics** for non-
   triangles with a CORE-3b pointer. Generalizing the kernels (per-type or unified-param) is next.
-- **CORE-3c (GUI)**: a shape-type selector in the sidebar (today `runner.rs` hardcodes
-  `ShapeType::Triangle`).
+- **CORE-3c (GUI)**: ✅ DONE — see the Part C section below.
 - **CORE-3a.2 (rigour)**: fogleman **bit-exact** parity for ellipse/rect needs the Go dumper
   (`go_primitive/primitive/parity_dump_test.go`, schema is triangle-only) extended; until then the
   three gates above pin correctness (the verbatim port + hand-checked rasters make a hidden math
   divergence unlikely, but the fixture is the gold standard the triangles already meet).
+
+## CORE-3 Part C — GUI shape-type selector — ✅ DONE (2026-06-29)
+
+The sidebar's placeholder "△ triangle (more soon)" row becomes a real 3-way selector
+(`sidebar.rs`, egui `selectable_value` over `△ triangle · ◯ ellipse · ▭ rect`) bound to a new
+persisted `params.shape_type`. The choice is plumbed Sidebar → `Params` → `RunConfig` →
+`runner::cpu_stream` → `budget.shape_type`, so ellipse/rect run live end-to-end on the CPU adapter
+(the watchable backend). `ShapeType` gained an **optional `serde` feature** in core (off by default —
+keeps core pure) so the app can persist it; `#[serde(default)]` keeps pre-CORE-3c saved params loading.
+
+**GPU guard**: `runner::start` routes any non-triangle shape to the CPU path even on a Metal/CUDA
+device (`gpu = is_gpu_device && shape_type == Triangle`) — GPU instant mode is triangle-only until
+CORE-3b. The CPU path is the live spectacle anyway, so ellipse/rect are fully usable now.
+
+Gate evidence (all green in `make verify`):
+- **e2e** (`tests/e2e.rs::ellipse_run_exports_ellipse_svg`): Ellipse selected → 40-shape run through
+  the real `runner` → SVG carries `<ellipse>` and **no** `polygon` (proves the type is plumbed).
+- **GPU-guard unit** (`runner::tests::non_triangle_on_gpu_device_routes_to_cpu`): Ellipse + `Device::Metal`
+  → still emits `<ellipse>` (routed to CPU before any GPU call; safe on any machine).
+- **a11y render** (`tests/a11y_tree.rs`): the headless egui_kittest render exposes `triangle` /
+  `ellipse` / `rect` options in the AccessKit tree — the native-app equivalent of a screenshot gate
+  (the selector renders with all three options).
+- Existing §5A state suite (18) + forced-CPU + a11y-tokens unchanged & green.
+
+Carry-forward: GPU instant mode for ellipse/rect is CORE-3b. The device chip still reads `Metal` when a
+non-triangle run is silently on CPU — cosmetic (the chip is GPU *availability*, not active backend);
+revisit if it confuses.

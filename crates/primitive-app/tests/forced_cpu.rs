@@ -7,6 +7,7 @@
 use primitive_app::device;
 use primitive_app::image_io;
 use primitive_app::runner::{start, RunConfig};
+use primitive_core::ShapeType;
 
 #[test]
 fn forced_cpu_probe_labels_and_runs_100_shapes() {
@@ -28,6 +29,7 @@ fn forced_cpu_probe_labels_and_runs_100_shapes() {
     let target = image_io::downscale(&target, 64);
     let handle = start(RunConfig {
         target,
+        shape_type: ShapeType::Triangle,
         count: 100,
         alpha: 128,
         seed: 1,

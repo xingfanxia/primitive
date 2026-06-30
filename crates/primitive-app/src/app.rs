@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use eframe::egui;
-use primitive_core::Canvas;
+use primitive_core::{Canvas, ShapeType};
 use serde::{Deserialize, Serialize};
 
 use crate::device;
@@ -21,6 +21,9 @@ use crate::state::{Device, Phase, Primary, Ui, UiFacts};
 /// User-tunable run parameters — persisted across launches (§5A "remember last-used params").
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Params {
+    /// `#[serde(default)]` so params persisted before shape selection (CORE-3c) still load.
+    #[serde(default)]
+    pub shape_type: ShapeType,
     pub count: i32,
     pub alpha: i32,
     pub seed: u64,
@@ -34,6 +37,7 @@ impl Default for Params {
     fn default() -> Self {
         // fogleman's defaults (triangle / 250 / alpha 128 / n=1000 age=100 m=16).
         Self {
+            shape_type: ShapeType::Triangle,
             count: 250,
             alpha: 128,
             seed: 1,
@@ -197,6 +201,7 @@ impl PrimitiveApp {
                     self.gif_frames.clear();
                     self.run = Some(runner::start(RunConfig {
                         target: target.clone(),
+                        shape_type: self.params.shape_type,
                         count: self.params.count as usize,
                         alpha: self.params.alpha,
                         seed: self.params.seed,

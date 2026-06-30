@@ -32,6 +32,14 @@ fn accesskit_tree_has_controls_and_live_progress() {
     assert!(has("count"), "count control label in the AccessKit tree");
     assert!(has("alpha"), "alpha control label in the AccessKit tree");
 
+    // CORE-3c: the shape-type selector exposes all three options (renders + VoiceOver-readable).
+    assert!(
+        has("triangle"),
+        "triangle shape option in the AccessKit tree"
+    );
+    assert!(has("ellipse"), "ellipse shape option in the AccessKit tree");
+    assert!(has("rect"), "rectangle shape option in the AccessKit tree");
+
     // The live-progress node exists even before Start (idle reads "0/<count>"). Default count = 250.
     assert!(
         has("0/250"),

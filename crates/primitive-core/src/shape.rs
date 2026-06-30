@@ -11,8 +11,10 @@ use crate::raster::{
 use crate::rng::Rng;
 
 /// Which primitive a search is fitting.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ShapeType {
+    #[default]
     Triangle,
     Ellipse,
     Rectangle,

@@ -220,5 +220,20 @@ parity fixture isn't extended yet — CORE-3a.2): **rasterizer geometry** hand-v
 half-widths `int(sqrt(9−dy²))` = centre [2,8] / mirror [3,7]; rectangle one-span-per-row, corner-order
 invariant; edge-clamping); **determinism** byte-identical reconstruction for the same seed; **effective-
 ness** above (60 shapes ⇒ ~9–10% of the flat baseline, 32–33 dB). The CPU optimizer/model needed **zero
-changes** — `Shape::random/mutate/rasterize/svg` dispatch polymorphically. GPU kernels (CORE-3b) + GUI
-selector (CORE-3c) are the follow-ups; `triangle_coords()` panics for non-triangles until 3b.
+changes** — `Shape::random/mutate/rasterize/svg` dispatch polymorphically. GPU kernels (CORE-3b) is the
+follow-up; `triangle_coords()` panics for non-triangles until 3b.
+
+## CORE-3 Part C — GUI shape-type selector (2026-06-29)
+
+### Shape selector wired end-to-end — `crates/primitive-app/`
+```
+tests/e2e.rs::ellipse_run_exports_ellipse_svg ........ ok  (40 ellipses → <ellipse> SVG, no polygon)
+runner::tests::non_triangle_on_gpu_device_routes_to_cpu  ok  (Ellipse + Device::Metal → <ellipse>)
+tests/a11y_tree.rs ................................... ok  (triangle/ellipse/rect in AccessKit tree)
+make verify .......................................... verify: ALL GREEN
+```
+Sidebar `selectable_value` (△ triangle · ◯ ellipse · ▭ rect) → persisted `params.shape_type` →
+`RunConfig` → `runner::cpu_stream` → `budget.shape_type`. `ShapeType` got an optional `serde` feature in
+core (pure-by-default) for persistence; `#[serde(default)]` keeps old saved params loading. `runner::start`
+routes non-triangle shapes to the CPU path even on a GPU device (GPU instant is triangle-only until 3b).
+Visual check is the headless egui_kittest render (a11y_tree) — the native-app stand-in for a screenshot.

@@ -44,6 +44,7 @@ pub struct Frame {
 /// Live config for a run (core controls + the Advanced power-user knobs + the chosen backend).
 pub struct RunConfig {
     pub target: Canvas,
+    pub shape_type: ShapeType,
     pub count: usize,
     pub alpha: i32,
     pub seed: u64,
@@ -71,7 +72,10 @@ pub fn start(cfg: RunConfig) -> RunHandle {
     let (tx, rx) = channel::<Frame>();
     let control = Arc::new(AtomicU8::new(RUN));
     let ctrl = control.clone();
-    let gpu = matches!(cfg.device, Device::Metal | Device::Cuda);
+    // GPU "instant" mode is triangle-only until CORE-3b generalizes the kernels; route ellipse/rect
+    // to the CPU streaming path even on a GPU device (the CPU adapter supports every shape type).
+    let gpu =
+        matches!(cfg.device, Device::Metal | Device::Cuda) && cfg.shape_type == ShapeType::Triangle;
     thread::spawn(move || {
         if gpu {
             gpu_instant(cfg, &tx);
@@ -88,7 +92,7 @@ fn cpu_stream(cfg: RunConfig, tx: &Sender<Frame>, control: &Arc<AtomicU8>) {
     let mut engine = Engine::with_average_background(cfg.target, CpuSearch::new(w, h));
     let mut budget = SearchBudget::triangles_default();
     budget.alpha = cfg.alpha;
-    budget.shape_type = ShapeType::Triangle;
+    budget.shape_type = cfg.shape_type;
     budget.n = cfg.n;
     budget.age = cfg.age;
     budget.m = cfg.m;
@@ -182,6 +186,7 @@ mod tests {
         let target = image_io::downscale(&target, 48); // tiny → fast in debug
         let handle = start(RunConfig {
             target,
+            shape_type: ShapeType::Triangle,
             count: 8,
             alpha: 128,
             seed: 1,
@@ -198,5 +203,37 @@ mod tests {
         };
         let svg = svg.expect("CPU done frame carries the SVG");
         assert!(svg.contains("<svg") && svg.contains("polygon"));
+    }
+
+    /// CORE-3c guard: GPU instant mode is triangle-only, so a non-triangle shape with a GPU device
+    /// must run on the CPU path. Proven by the SVG carrying `<ellipse>` (not the triangles
+    /// gpu_optimize emits). The guard short-circuits before any GPU call, so this is safe on a
+    /// machine with or without Metal.
+    #[test]
+    fn non_triangle_on_gpu_device_routes_to_cpu() {
+        let (_, target) = image_io::load_bytes(image_io::SAMPLES[0].1).expect("sample decodes");
+        let target = image_io::downscale(&target, 48);
+        let handle = start(RunConfig {
+            target,
+            shape_type: ShapeType::Ellipse,
+            count: 6,
+            alpha: 128,
+            seed: 1,
+            n: 100,
+            age: 20,
+            m: 8,
+            device: Device::Metal,
+        });
+        let svg = loop {
+            let f = handle.rx.recv().expect("frames stream until done");
+            if f.done {
+                break f.svg;
+            }
+        };
+        let svg = svg.expect("CPU done frame carries the SVG");
+        assert!(
+            svg.contains("<ellipse"),
+            "ellipse ran on the CPU path despite the GPU device"
+        );
     }
 }
