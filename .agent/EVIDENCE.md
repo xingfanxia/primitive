@@ -213,7 +213,7 @@ Part B done-gate (interactive, on a **clean** machine — verified off-`/goal`, 
 ```
 Ellipse:   score 0.23835 -> 0.02468 (10% of initial) over 60 shapes, PSNR 32.15 dB
 Rectangle: score 0.23835 -> 0.02220 ( 9% of initial) over 60 shapes, PSNR 33.07 dB
-test result: ok. 6 passed; 0 failed
+test result: ok. 7 passed; 0 failed
 ```
 Verbatim ports of fogleman's `ellipse.go` / `rectangle.go`. Three gates (the triangle-only fogleman
 parity fixture isn't extended yet — CORE-3a.2): **rasterizer geometry** hand-verified (radius-3 circle

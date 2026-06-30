@@ -77,9 +77,18 @@ impl Shape {
     }
 }
 
+/// Clamp to `[lo, hi]` with fogleman's `clampInt` semantics: the lower bound wins when `lo > hi`
+/// (Go checks `x < lo` first). Identical to `max(lo).min(hi)` whenever `lo <= hi` (the only case the
+/// Triangle clamps hit); the `lo > hi` branch matters only for radii clamps on a 1-px-dim canvas.
 #[inline]
 fn clamp_i32(x: i32, lo: i32, hi: i32) -> i32 {
-    x.max(lo).min(hi)
+    if x < lo {
+        lo
+    } else if x > hi {
+        hi
+    } else {
+        x
+    }
 }
 
 #[inline]
@@ -226,6 +235,8 @@ impl Ellipse {
     fn rasterize(&self, w: i32, h: i32) -> Vec<Scanline> {
         let mut buf = Vec::new();
         rasterize_ellipse(self.x, self.y, self.rx, self.ry, w, h, &mut buf);
+        // Defensive only: fogleman's Ellipse.Rasterize self-clips x and skips out-of-frame rows, so
+        // with cx/cy in-bounds (random/mutate enforce it) this crop is a no-op — kept for safety.
         crop_scanlines(&mut buf, w, h);
         buf
     }
@@ -288,6 +299,8 @@ impl Rectangle {
     fn rasterize(&self, w: i32, h: i32) -> Vec<Scanline> {
         let mut buf = Vec::new();
         rasterize_rectangle(self.x1, self.y1, self.x2, self.y2, &mut buf);
+        // Defensive only: corners are always in-bounds (random/mutate clamp), so crop is a no-op
+        // here — fogleman's Rectangle.Rasterize doesn't crop; kept for safety/consistency.
         crop_scanlines(&mut buf, w, h);
         buf
     }

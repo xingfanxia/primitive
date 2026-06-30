@@ -52,6 +52,23 @@ fn ellipse_rasterizes_analytic_circle_spans() {
 }
 
 #[test]
+fn ellipse_rasterizes_aspect_ratio_spans() {
+    // rx ≠ ry pins the `* aspect` term (a circle's aspect == 1 hides bugs in it). Centre (8,8),
+    // rx=6, ry=3 ⇒ aspect=2, half-width = int(sqrt(9−dy²) · 2):
+    //   dy0 → int(3·2)=6 → row 8 = [2,14];  dy1 → int(2.828·2)=5 → rows 7,9 = [3,13];
+    //   dy2 → int(2.236·2)=4 → rows 6,10 = [4,12].
+    let mut buf = Vec::new();
+    rasterize_ellipse(8, 8, 6, 3, 20, 20, &mut buf);
+    let s = spans(&buf);
+    assert_eq!(s.len(), 5, "rows 6..=10");
+    assert_eq!(s[&8], (2, 14), "centre row: half-width int(3·2)=6");
+    assert_eq!(s[&7], (3, 13), "dy=1: half-width int(sqrt(8)·2)=5");
+    assert_eq!(s[&9], (3, 13));
+    assert_eq!(s[&6], (4, 12), "dy=2: half-width int(sqrt(5)·2)=4");
+    assert_eq!(s[&10], (4, 12));
+}
+
+#[test]
 fn ellipse_clamps_spans_to_canvas() {
     // Centre near the left/top edge: spans must clamp into [0, w) / drop out-of-frame rows.
     let mut buf = Vec::new();

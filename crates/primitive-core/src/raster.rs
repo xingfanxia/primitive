@@ -15,9 +15,17 @@ pub struct Scanline {
     pub alpha: u32,
 }
 
+/// Clamp to `[lo, hi]` with fogleman's `clampInt` semantics (lower bound wins when `lo > hi`).
+/// Identical to `max(lo).min(hi)` for the `lo <= hi` inputs `crop_scanlines` always passes.
 #[inline]
 fn clamp_i32(x: i32, lo: i32, hi: i32) -> i32 {
-    x.max(lo).min(hi)
+    if x < lo {
+        lo
+    } else if x > hi {
+        hi
+    } else {
+        x
+    }
 }
 
 /// Clip scanlines to the image rectangle, dropping fully-outside runs — port of
@@ -167,7 +175,8 @@ pub fn rasterize_ellipse(
         if (y1 < 0 || y1 >= h) && (y2 < 0 || y2 >= h) {
             continue;
         }
-        let s = (((ry * ry - dy * dy) as f64).sqrt() * aspect) as i32;
+        // i64 like Go's `int`: ry can reach a canvas dimension, and ry² overflows i32 past ~46k px.
+        let s = (((ry as i64 * ry as i64 - dy as i64 * dy as i64) as f64).sqrt() * aspect) as i32;
         let mut x1 = cx - s;
         let mut x2 = cx + s;
         if x1 < 0 {
