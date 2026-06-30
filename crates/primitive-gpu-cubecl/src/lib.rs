@@ -292,6 +292,13 @@ pub fn gpu_optimize(target: &Canvas, cfg: &OptConfig) -> Canvas {
     let n_pix = target_i32.len();
     let w = target.w as i32;
     let h = target.h as i32;
+    // The ellipse/rect search reaches `inside_ellipse`'s i32 degree-4 product, which overflows once a
+    // radius exceeds ~181 (radii clamp to `w-1`/`h-1`). Mirrors the `score_ellipses` dispatch guard;
+    // triangles use the edge-function path and aren't bound by it. The app caps at GPU_INSTANT_MAX=128.
+    debug_assert!(
+        cfg.shape_type == ShapeType::Triangle || (w <= 182 && h <= 182),
+        "gpu_optimize: {w}×{h} exceeds the i32-safe ellipse/rect bound (§6.6)"
+    );
 
     let client = WgpuRuntime::client(&Default::default());
     let target_h = client.create_from_slice(bytemuck::cast_slice(&target_i32));

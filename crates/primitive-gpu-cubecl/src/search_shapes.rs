@@ -230,10 +230,15 @@ pub fn commit_ellipse(
             let rx = best_ell[b + 2];
             let ry = best_ell[b + 3];
             let a_coef = 65535 / alpha;
-            let xmin = clampi(cx - rx, 0, width - 1);
-            let xmax = clampi(cx + rx, 0, width - 1);
-            let ymin = clampi(cy - ry, 0, height - 1);
-            let ymax = clampi(cy + ry, 0, height - 1);
+            // Mirror `score_one_ellipse`'s `arx/ary` abs so commit composites over the *exact* coverage
+            // evolve scored (radii are ≥ 1 today → no-op precondition, kept so the kernel is a true
+            // mirror of its scorer rather than correct only by precondition).
+            let arx = if rx < 0 { -rx } else { rx };
+            let ary = if ry < 0 { -ry } else { ry };
+            let xmin = clampi(cx - arx, 0, width - 1);
+            let xmax = clampi(cx + arx, 0, width - 1);
+            let ymin = clampi(cy - ary, 0, height - 1);
+            let ymax = clampi(cy + ary, 0, height - 1);
 
             let mut rsum = 0i32;
             let mut gsum = 0i32;
@@ -241,7 +246,7 @@ pub fn commit_ellipse(
             let mut count = 0i32;
             for py in ymin..ymax + 1 {
                 for px in xmin..xmax + 1 {
-                    if inside_ellipse(cx, cy, rx, ry, px, py) {
+                    if inside_ellipse(cx, cy, arx, ary, px, py) {
                         let idx = ((py * width + px) * 4) as usize;
                         rsum += (target[idx] - current[idx]) * a_coef + current[idx] * 257;
                         gsum +=
@@ -264,7 +269,7 @@ pub fn commit_ellipse(
                 let aa = (65535 - sa * 65535 / 65535) * 257;
                 for py in ymin..ymax + 1 {
                     for px in xmin..xmax + 1 {
-                        if inside_ellipse(cx, cy, rx, ry, px, py) {
+                        if inside_ellipse(cx, cy, arx, ary, px, py) {
                             let idx = ((py * width + px) * 4) as usize;
                             current[idx] = composite(current[idx] as u32, sr, aa) as i32;
                             current[idx + 1] = composite(current[idx + 1] as u32, sg, aa) as i32;
@@ -311,6 +316,9 @@ pub fn commit_rect(
             let xb = if rx1 < rx2 { rx2 } else { rx1 };
             let ya = if ry1 < ry2 { ry1 } else { ry2 };
             let yb = if ry1 < ry2 { ry2 } else { ry1 };
+            // Mirror `score_one_rect`'s off-canvas drop so commit composites over the *exact* coverage
+            // evolve scored (corners clamp in-bounds today → always true, kept for parity).
+            let in_bounds = xb >= 0 && xa < width && yb >= 0 && ya < height;
             let a_coef = 65535 / alpha;
             let xmin = clampi(xa, 0, width - 1);
             let xmax = clampi(xb, 0, width - 1);
@@ -321,13 +329,17 @@ pub fn commit_rect(
             let mut gsum = 0i32;
             let mut bsum = 0i32;
             let mut count = 0i32;
-            for py in ymin..ymax + 1 {
-                for px in xmin..xmax + 1 {
-                    let idx = ((py * width + px) * 4) as usize;
-                    rsum += (target[idx] - current[idx]) * a_coef + current[idx] * 257;
-                    gsum += (target[idx + 1] - current[idx + 1]) * a_coef + current[idx + 1] * 257;
-                    bsum += (target[idx + 2] - current[idx + 2]) * a_coef + current[idx + 2] * 257;
-                    count += 1;
+            if in_bounds {
+                for py in ymin..ymax + 1 {
+                    for px in xmin..xmax + 1 {
+                        let idx = ((py * width + px) * 4) as usize;
+                        rsum += (target[idx] - current[idx]) * a_coef + current[idx] * 257;
+                        gsum +=
+                            (target[idx + 1] - current[idx + 1]) * a_coef + current[idx + 1] * 257;
+                        bsum +=
+                            (target[idx + 2] - current[idx + 2]) * a_coef + current[idx + 2] * 257;
+                        count += 1;
+                    }
                 }
             }
             if count > 0 {

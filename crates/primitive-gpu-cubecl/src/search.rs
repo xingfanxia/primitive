@@ -156,8 +156,9 @@ pub fn evolve(
         let s = rand_u32(seed + step, w as u32);
         let mut ctr = 1u32;
 
-        // Energy-targeted anchor: the highest-residual of 4 random pixels (cheap restart bias
-        // toward error-heavy regions — fogleman's energy-map trick, sampled).
+        // Energy-targeted anchor: the highest-residual of 8 random pixels (cheap restart bias
+        // toward error-heavy regions — fogleman's energy-map trick, sampled). Same best-of-8 the
+        // shared `search_shapes::anchor` helper factors out for the ellipse/rect loops.
         let mut x0 = rand_below(s, ctr, width as u32) as i32;
         ctr += 1;
         let mut y0 = rand_below(s, ctr, height as u32) as i32;
