@@ -6,7 +6,7 @@
 //! closed-form (`color.rs`), never mutated here.
 
 use crate::raster::{
-    crop_scanlines, rasterize_ellipse, rasterize_rectangle, rasterize_triangle, Scanline,
+    clamp_i32, crop_scanlines, rasterize_ellipse, rasterize_rectangle, rasterize_triangle, Scanline,
 };
 use crate::rng::Rng;
 
@@ -68,28 +68,30 @@ impl Shape {
     }
 
     /// Flat `[x1, y1, x2, y2, x3, y3]` — the layout the GPU `score_triangles` kernel consumes.
-    /// Triangle-only: the GPU batch path is triangle-specific until CORE-3b generalizes the kernels.
     pub fn triangle_coords(&self) -> [i32; 6] {
         match self {
             Shape::Triangle(t) => [t.x1, t.y1, t.x2, t.y2, t.x3, t.y3],
             Shape::Ellipse(_) | Shape::Rectangle(_) => {
-                panic!("triangle_coords called on a non-triangle shape; the GPU batch path is triangle-only until CORE-3b")
+                panic!("triangle_coords called on a non-triangle shape (use ellipse_coords / rectangle_coords)")
             }
         }
     }
-}
 
-/// Clamp to `[lo, hi]` with fogleman's `clampInt` semantics: the lower bound wins when `lo > hi`
-/// (Go checks `x < lo` first). Identical to `max(lo).min(hi)` whenever `lo <= hi` (the only case the
-/// Triangle clamps hit); the `lo > hi` branch matters only for radii clamps on a 1-px-dim canvas.
-#[inline]
-fn clamp_i32(x: i32, lo: i32, hi: i32) -> i32 {
-    if x < lo {
-        lo
-    } else if x > hi {
-        hi
-    } else {
-        x
+    /// Flat `[cx, cy, rx, ry]` — the layout the GPU `score_ellipses` kernel consumes (CORE-3b.2).
+    pub fn ellipse_coords(&self) -> [i32; 4] {
+        match self {
+            Shape::Ellipse(e) => [e.x, e.y, e.rx, e.ry],
+            _ => panic!("ellipse_coords called on a non-ellipse shape"),
+        }
+    }
+
+    /// Flat `[x1, y1, x2, y2]` (opposite corners) — the layout the GPU `score_rectangles` kernel
+    /// consumes (CORE-3b.2).
+    pub fn rectangle_coords(&self) -> [i32; 4] {
+        match self {
+            Shape::Rectangle(r) => [r.x1, r.y1, r.x2, r.y2],
+            _ => panic!("rectangle_coords called on a non-rectangle shape"),
+        }
     }
 }
 

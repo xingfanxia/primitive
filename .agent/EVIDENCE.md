@@ -257,3 +257,22 @@ guarding the domain). `rasterize_ellipse_int` bbox-scans the per-row contiguous 
 crop, rather than saturating into a phantom column). **Refactor:** the additions took `raster.rs` to 516
 LOC (> 500 gate), so the integer rasterizers split into `raster_int.rs` (f64 golden reference stays in
 `raster.rs`); `clamp_i32` is `pub(crate)`-shared. Not yet GPU-wired — CORE-3b.2 consumes these on-device.
+
+## CORE-3 Part B.2 — on-device ellipse/rect score kernels (2026-06-29)
+
+### GPU score parity for ellipse + rect — `crates/primitive-gpu-cubecl/tests/`
+```
+gpu2_ellipses.rs::gpu2_ellipse_raster_score_matches_cpu_exactly ... ok  (1000/1000 bit-identical to CPU)
+gpu2_rects.rs::gpu2_rect_raster_score_matches_cpu_exactly ......... ok  (1000/1000 bit-identical to CPU)
+make verify ...................................................... verify: ALL GREEN (on Metal)
+```
+The `score_ellipses`/`score_rectangles` kernels (new `score_shapes.rs`: in-kernel integer raster via
+`inside_ellipse` / the rect bbox + the proven `score_one` color+delta math) reproduce
+`rasterize_ellipse_int`/`rasterize_rectangle_int` + `candidate_color_and_delta` exactly for 1000
+candidates each (each **mutated 4×** so the gate covers the larger-radii / near-edge domain the 3b.3
+search will feed, not just freshly-rolled shapes). Host: `EllipseBatch`/`RectBatch` +
+`GpuSession::score_ellipses`/`score_rects` + one-shot `gpu_score_ellipses`/`gpu_score_rectangles`;
+`Shape::ellipse_coords`/`rectangle_coords` accessors. Review hardening (true-mirror, not
+correct-by-precondition): the kernels now `.abs()` radii + drop fully-off-canvas rects like their CPU
+oracles, and `score_ellipses` `debug_assert`s the ≤182-px i32-safe canvas bound at dispatch. Scorer
+only — the GPU search loop (`evolve`/`commit`) is CORE-3b.3.

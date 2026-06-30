@@ -17,6 +17,7 @@
 //! is GPU-2 hardening tracked in `.agent/PROGRESS.md`.
 
 mod kernels;
+mod score_shapes;
 mod search;
 
 use cubecl::prelude::*;
@@ -75,6 +76,22 @@ pub fn gpu_score_candidates(target: &Canvas, current: &Canvas, c: &CandidateSpan
 pub struct TriangleBatch {
     /// 6 ints per candidate: `[x1, y1, x2, y2, x3, y3]`.
     pub tris: Vec<i32>,
+    /// Per-candidate fill alpha.
+    pub alphas: Vec<i32>,
+}
+
+/// A batch of ellipse candidates for the on-device scorer (CORE-3b.2).
+pub struct EllipseBatch {
+    /// 4 ints per candidate: `[cx, cy, rx, ry]`.
+    pub ells: Vec<i32>,
+    /// Per-candidate fill alpha.
+    pub alphas: Vec<i32>,
+}
+
+/// A batch of axis-aligned rectangle candidates for the on-device scorer (CORE-3b.2).
+pub struct RectBatch {
+    /// 4 ints per candidate: `[x1, y1, x2, y2]` (opposite corners).
+    pub rects: Vec<i32>,
     /// Per-candidate fill alpha.
     pub alphas: Vec<i32>,
 }
@@ -161,6 +178,69 @@ impl GpuSession {
         let idx: Vec<i32> = bytemuck::cast_slice(&self.client.read_one_unchecked(idx_h)).to_vec();
         idx[0]
     }
+
+    /// Rasterize + score every **ellipse** candidate on the GPU (CORE-3b.2); integer delta-SSE per
+    /// candidate, exact vs `rasterize_ellipse_int` + `candidate_color_and_delta` on the CPU.
+    pub fn score_ellipses(&self, b: &EllipseBatch) -> Vec<i32> {
+        // The in-kernel `inside_ellipse` test is i32 (Metal has no i64). Its degree-4 product
+        // `ry²·dx²` overflows once an operand exceeds ~181 (radii ≤ w-1 ≤ h-1), so the GPU agrees with
+        // the i64 CPU oracle only within this canvas bound (§6.6). The app caps at 128 (GPU_INSTANT_MAX).
+        debug_assert!(
+            self.w <= 182 && self.h <= 182,
+            "score_ellipses: {}×{} canvas exceeds the i32-safe bound (radii could overflow the i32 GPU ellipse test; §6.6)",
+            self.w,
+            self.h
+        );
+        let n = b.alphas.len();
+        let ells_h = self.client.create_from_slice(bytemuck::cast_slice(&b.ells));
+        let alpha_h = self
+            .client
+            .create_from_slice(bytemuck::cast_slice(&b.alphas));
+        let out_h = self.client.empty(n * core::mem::size_of::<i32>());
+        unsafe {
+            score_shapes::score_ellipses::launch_unchecked::<WgpuRuntime>(
+                &self.client,
+                CubeCount::Static((n as u32).div_ceil(THREADS), 1, 1),
+                CubeDim::new_1d(THREADS),
+                ArrayArg::from_raw_parts(self.target_h.clone(), self.tlen),
+                ArrayArg::from_raw_parts(self.current_h.clone(), self.clen),
+                ArrayArg::from_raw_parts(ells_h.clone(), b.ells.len()),
+                ArrayArg::from_raw_parts(alpha_h.clone(), n),
+                self.w,
+                self.h,
+                ArrayArg::from_raw_parts(out_h.clone(), n),
+            );
+        }
+        bytemuck::cast_slice(&self.client.read_one_unchecked(out_h)).to_vec()
+    }
+
+    /// Rasterize + score every **rectangle** candidate on the GPU (CORE-3b.2); exact vs
+    /// `rasterize_rectangle_int` + `candidate_color_and_delta` on the CPU.
+    pub fn score_rects(&self, b: &RectBatch) -> Vec<i32> {
+        let n = b.alphas.len();
+        let rects_h = self
+            .client
+            .create_from_slice(bytemuck::cast_slice(&b.rects));
+        let alpha_h = self
+            .client
+            .create_from_slice(bytemuck::cast_slice(&b.alphas));
+        let out_h = self.client.empty(n * core::mem::size_of::<i32>());
+        unsafe {
+            score_shapes::score_rectangles::launch_unchecked::<WgpuRuntime>(
+                &self.client,
+                CubeCount::Static((n as u32).div_ceil(THREADS), 1, 1),
+                CubeDim::new_1d(THREADS),
+                ArrayArg::from_raw_parts(self.target_h.clone(), self.tlen),
+                ArrayArg::from_raw_parts(self.current_h.clone(), self.clen),
+                ArrayArg::from_raw_parts(rects_h.clone(), b.rects.len()),
+                ArrayArg::from_raw_parts(alpha_h.clone(), n),
+                self.w,
+                self.h,
+                ArrayArg::from_raw_parts(out_h.clone(), n),
+            );
+        }
+        bytemuck::cast_slice(&self.client.read_one_unchecked(out_h)).to_vec()
+    }
 }
 
 /// GPU-2 one-shot: rasterize + score a batch (uploads target/current per call). For repeated
@@ -172,6 +252,16 @@ pub fn gpu_score_triangles(target: &Canvas, current: &Canvas, b: &TriangleBatch)
 /// GPU-2 one-shot: the winning candidate index via the on-device argmin.
 pub fn gpu_best_triangle(target: &Canvas, current: &Canvas, b: &TriangleBatch) -> i32 {
     GpuSession::new(target, current).best_triangle(b)
+}
+
+/// CORE-3b.2 one-shot: rasterize + score an ellipse batch (uploads target/current per call).
+pub fn gpu_score_ellipses(target: &Canvas, current: &Canvas, b: &EllipseBatch) -> Vec<i32> {
+    GpuSession::new(target, current).score_ellipses(b)
+}
+
+/// CORE-3b.2 one-shot: rasterize + score a rectangle batch (uploads target/current per call).
+pub fn gpu_score_rectangles(target: &Canvas, current: &Canvas, b: &RectBatch) -> Vec<i32> {
+    GpuSession::new(target, current).score_rects(b)
 }
 
 /// GPU-3 search configuration. Per shape, `workers` independent hill-climbs each run `age`
