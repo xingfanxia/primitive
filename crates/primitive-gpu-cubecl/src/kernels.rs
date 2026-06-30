@@ -68,7 +68,7 @@ pub(crate) fn clampi(x: i32, lo: i32, hi: i32) -> i32 {
     r
 }
 
-/// Integer edge-function inside test — mirrors `primitive_core::raster::triangle_inside`.
+/// Integer edge-function inside test — mirrors `primitive_core::raster_int::triangle_inside`.
 #[cube]
 fn inside(t0: i32, t1: i32, t2: i32, t3: i32, t4: i32, t5: i32, px: i32, py: i32) -> bool {
     let e0 = (t2 - t0) * (py - t1) - (t3 - t1) * (px - t0);

@@ -237,3 +237,20 @@ Sidebar `selectable_value` (△ triangle · ◯ ellipse · ▭ rect) → persist
 core (pure-by-default) for persistence; `#[serde(default)]` keeps old saved params loading. `runner::start`
 routes non-triangle shapes to the CPU path even on a GPU device (GPU instant is triangle-only until 3b).
 Visual check is the headless egui_kittest render (a11y_tree) — the native-app stand-in for a screenshot.
+
+## CORE-3 Part B.1 — integer ellipse/rect rasterizers (2026-06-29)
+
+### GPU-shared integer rasterizers — `crates/primitive-core/src/raster_int.rs` (new module)
+```
+ellipse_inside_matches_implicit_test ............................ ok  (centre+extrema in, 1-past out)
+int_ellipse_raster_is_contiguous_inside_and_symmetric ........... ok  (span centred on cx, vert-symmetric)
+int_ellipse_roughly_matches_f64_reference ....................... ok  (within 8% of fogleman f64 area)
+int_rect_raster_clamps_and_spans_corner_order_invariant ......... ok  (cropped, corner-order invariant)
+int_ellipse_raster_is_deterministic / int_raster_* (triangle) ... ok  (byte-identical)
+make verify ..................................................... verify: ALL GREEN  (raster.rs 222 / raster_int.rs 297 LOC, both < 500)
+```
+`ellipse_inside` = integer implicit test `ry²·dx² + rx²·dy² ≤ rx²·ry²` (i64; GPU mirrors in i32 within the
+≤128-px bound, §6.6). `rasterize_ellipse_int` bbox-scans the per-row contiguous run (convex);
+`rasterize_rectangle_int` is the self-cropping integer bbox. **Refactor:** the additions took `raster.rs`
+to 516 LOC (> 500 gate), so the integer rasterizers split into `raster_int.rs` (f64 golden reference stays
+in `raster.rs`); `clamp_i32` is `pub(crate)`-shared. Not yet GPU-wired — CORE-3b.2 consumes these on-device.

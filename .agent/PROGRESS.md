@@ -218,9 +218,12 @@ Gate evidence (all green in `make verify`; `crates/primitive-core/tests/shapes.r
   flat-background baseline** (PSNR 32.15 / 33.07 dB); SVG export emits valid `<ellipse>` / `<rect>`.
 
 Scope notes (carry-forward, by design):
-- **CORE-3b (GPU)**: the GPU batch path is triangle-specific (`TriangleBatch`, `score_triangles`,
-  `evolve`/`commit` all assume 6-int triangles); `Shape::triangle_coords()` **panics** for non-
-  triangles with a CORE-3b pointer. Generalizing the kernels (per-type or unified-param) is next.
+- **CORE-3b (GPU)**: staged in three. **3b.1 (integer rasterizers) ✅ DONE** — see the Part B.1
+  section below. **3b.2/3b.3 remain**: the GPU batch path is still triangle-specific (`TriangleBatch`,
+  `score_triangles`, `evolve`/`commit` all assume 6-int triangles); `Shape::triangle_coords()`
+  **panics** for non-triangles with a CORE-3b pointer. 3b.2 = generalize the score kernel to consume
+  `rasterize_ellipse_int`/`rasterize_rectangle_int` with GPU↔CPU parity; 3b.3 = generalize
+  `evolve`/`commit` (in-kernel random/mutate per shape type).
 - **CORE-3c (GUI)**: ✅ DONE — see the Part C section below.
 - **CORE-3a.2 (rigour)**: fogleman **bit-exact** parity for ellipse/rect needs the Go dumper
   (`go_primitive/primitive/parity_dump_test.go`, schema is triangle-only) extended; until then the
@@ -255,3 +258,37 @@ Gate evidence (all green in `make verify`):
 Carry-forward: GPU instant mode for ellipse/rect is CORE-3b. The device chip still reads `Metal` when a
 non-triangle run is silently on CPU — cosmetic (the chip is GPU *availability*, not active backend);
 revisit if it confuses.
+
+## CORE-3 Part B.1 — integer ellipse/rect rasterizers (GPU-shared path) — ✅ DONE (2026-06-29)
+
+The foundation for the GPU shape-set expansion: the §6.6 integer rasterizers ellipse/rect need so the
+GPU kernel and its CPU oracle cover the **exact same pixels** (Metal has no f64). Mirrors the existing
+triangle path (`rasterize_triangle_int` / `triangle_inside`):
+
+- **`ellipse_inside(cx, cy, rx, ry, px, py)`** — the integer implicit test `ry²·dx² + rx²·dy² ≤ rx²·ry²`
+  (no `sqrt`; the integer analogue of `triangle_inside`). Computed in `i64`: `ry²·dx²` overflows `i32`
+  past ~46k px, so the GPU mirror (i32) is valid within the documented canvas bound (≤128 px, §6.6),
+  where the two agree bit-for-bit (no overflow).
+- **`rasterize_ellipse_int`** — bbox-scan emitting the per-row contiguous run (ellipses are convex), the
+  integer counterpart of fogleman's f64 `rasterize_ellipse`.
+- **`rasterize_rectangle_int`** — self-cropping integer bbox (already all-integer; trivial GPU mirror).
+
+**Refactor (size gate, not allowlist):** adding these pushed `raster.rs` to 516 LOC (> 500 hard gate),
+so the integer rasterizers split into a new **`raster_int.rs`** module — the seam the file's own comment
+already drew (f64 golden reference in `raster.rs` ← → integer GPU-shared path in `raster_int.rs`). Both
+files now ~220–290 LOC. `clamp_i32` is `pub(crate)` so both share one clamp.
+
+Gate evidence (all green in `make verify`; `crates/primitive-core/src/raster_int.rs` tests, 7 total):
+- **`ellipse_inside_matches_implicit_test`** — centre + 4 axis extrema inside/on-boundary; one step past
+  each axis and the bbox corner are outside.
+- **`int_ellipse_raster_is_contiguous_inside_and_symmetric`** — every emitted pixel inside, maximal run,
+  each row's span centred on `cx` (`x1+x2 == 2·cx`), vertical symmetry (`cy−k`/`cy+k` identical).
+- **`int_ellipse_roughly_matches_f64_reference`** — integer raster covers within **8%** of fogleman's f64
+  scanline area (sub-pixel edges differ, as for triangles).
+- **`int_rect_raster_clamps_and_spans_corner_order_invariant`** — full-width span/row, corner-order
+  invariant, cropped to the image (never out of bounds).
+- determinism (ellipse + the carried-over triangle int tests) byte-identical.
+
+Carry-forward: these are **not yet GPU-wired** — CORE-3b.2 generalizes the score kernel to consume them
+on-device with GPU↔CPU bit-identical parity (like GPU-2 for triangles), then 3b.3 the `evolve`/`commit`
+search loop.
