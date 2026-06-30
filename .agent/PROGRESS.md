@@ -196,3 +196,34 @@ osx` → `target/release/bundle/osx/primitive.app` (generated Info.plist id `com
 `primitive.icns` in Resources, executable present); the script halts at the codesign boundary.
 **Part B (sign/notarize/staple) is interactive-only** — done-gate is `xcrun stapler validate` + `spctl
 --assess` = accepted on a *clean* machine (verified off-`/goal`, with you holding the Apple credentials).
+
+## CORE-3 Part A — Ellipse + Rectangle (core + CPU) — ✅ DONE (2026-06-29)
+
+The first slice of the architecture's shape-set expansion (§10 Q5: "triangle + ellipse + rect first,
+expand after PKG-1"). `core::shape` gains `Ellipse` (x,y,rx,ry) and axis-aligned `Rectangle`
+(x1,y1,x2,y2) variants — verbatim ports of fogleman's `ellipse.go` / `rectangle.go` (random/mutate/
+rasterize/svg), with `rasterize_ellipse` / `rasterize_rectangle` reference rasterizers added to
+`core::raster`. The `Shape`/`ShapeType` enums + dispatch are extended; because the optimizer/model
+call `Shape::random(t, …)` / `shape.mutate/rasterize/svg` polymorphically, **the entire CPU search +
+SVG export works for the new shapes with zero changes to `optimizer.rs` / `model.rs`**.
+
+Gate evidence (all green in `make verify`; `crates/primitive-core/tests/shapes.rs`, 7 tests):
+- **Rasterizer geometry** — hand-verified scanline spans for a radius-3 circle (`int(sqrt(9−dy²))`
+  half-widths: centre row [2,8], mirrored rows [3,7]), a non-circular ellipse (rx=6,ry=3 ⇒ aspect=2,
+  pins the `* aspect` term a circle would hide), and a sorted-corner rectangle (one span/row);
+  edge-clamping checked.
+- **Determinism** — same seed + target ⇒ **byte-identical reconstruction** (score + `current.pix`)
+  for both Ellipse and Rectangle.
+- **Effectiveness** — 60 shapes on a 48×48 synthetic target cut the score to **~10%/9% of the
+  flat-background baseline** (PSNR 32.15 / 33.07 dB); SVG export emits valid `<ellipse>` / `<rect>`.
+
+Scope notes (carry-forward, by design):
+- **CORE-3b (GPU)**: the GPU batch path is triangle-specific (`TriangleBatch`, `score_triangles`,
+  `evolve`/`commit` all assume 6-int triangles); `Shape::triangle_coords()` **panics** for non-
+  triangles with a CORE-3b pointer. Generalizing the kernels (per-type or unified-param) is next.
+- **CORE-3c (GUI)**: a shape-type selector in the sidebar (today `runner.rs` hardcodes
+  `ShapeType::Triangle`).
+- **CORE-3a.2 (rigour)**: fogleman **bit-exact** parity for ellipse/rect needs the Go dumper
+  (`go_primitive/primitive/parity_dump_test.go`, schema is triangle-only) extended; until then the
+  three gates above pin correctness (the verbatim port + hand-checked rasters make a hidden math
+  divergence unlikely, but the fixture is the gold standard the triangles already meet).

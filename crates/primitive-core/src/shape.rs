@@ -1,37 +1,49 @@
 //! Shapes and their geometry mutations.
 //!
-//! Port of fogleman's `Shape` family. v1 ships the `Triangle` (default mode `m=1`); the
-//! enum is the extension seam for ellipse / rect / rotated-rect (plan §10 Q5 recommends
-//! triangle + ellipse + rect by GPU-3). Geometry only — color is solved closed-form
-//! (`color.rs`), never mutated here.
+//! Port of fogleman's `Shape` family. Ships `Triangle` (default mode `m=1`), `Ellipse`, and
+//! axis-aligned `Rectangle` (plan §10 Q5: triangle + ellipse + rect first, expand after PKG-1);
+//! the enum is the extension seam for the rotated/curved variants. Geometry only — color is solved
+//! closed-form (`color.rs`), never mutated here.
 
-use crate::raster::{crop_scanlines, rasterize_triangle, Scanline};
+use crate::raster::{
+    crop_scanlines, rasterize_ellipse, rasterize_rectangle, rasterize_triangle, Scanline,
+};
 use crate::rng::Rng;
 
 /// Which primitive a search is fitting.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShapeType {
     Triangle,
+    Ellipse,
+    Rectangle,
 }
 
 /// A geometric primitive instance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Shape {
     Triangle(Triangle),
+    Ellipse(Ellipse),
+    Rectangle(Rectangle),
 }
 
 impl Shape {
-    /// A fresh random shape of `t`, already mutated once (matches fogleman's constructors).
+    /// A fresh random shape of `t` (Triangle is mutated once on construction, matching fogleman's
+    /// `NewRandomTriangle`; Ellipse/Rectangle are returned as-rolled, matching theirs).
     pub fn random(t: ShapeType, w: i32, h: i32, rng: &mut Rng) -> Shape {
         match t {
             ShapeType::Triangle => Shape::Triangle(Triangle::random(w, h, rng)),
+            ShapeType::Ellipse => Shape::Ellipse(Ellipse::random(w, h, rng)),
+            ShapeType::Rectangle => Shape::Rectangle(Rectangle::random(w, h, rng)),
         }
     }
 
-    /// Perturb the geometry in place, re-rolling until the shape is valid.
+    /// Perturb the geometry in place (Triangle re-rolls until valid; Ellipse/Rectangle have no
+    /// validity constraint, matching fogleman).
     pub fn mutate(&mut self, w: i32, h: i32, rng: &mut Rng) {
         match self {
             Shape::Triangle(t) => t.mutate(w, h, rng),
+            Shape::Ellipse(e) => e.mutate(w, h, rng),
+            Shape::Rectangle(r) => r.mutate(w, h, rng),
         }
     }
 
@@ -39,6 +51,8 @@ impl Shape {
     pub fn rasterize(&self, w: i32, h: i32) -> Vec<Scanline> {
         match self {
             Shape::Triangle(t) => t.rasterize(w, h),
+            Shape::Ellipse(e) => e.rasterize(w, h),
+            Shape::Rectangle(r) => r.rasterize(w, h),
         }
     }
 
@@ -46,20 +60,35 @@ impl Shape {
     pub fn svg(&self, attrs: &str) -> String {
         match self {
             Shape::Triangle(t) => t.svg(attrs),
+            Shape::Ellipse(e) => e.svg(attrs),
+            Shape::Rectangle(r) => r.svg(attrs),
         }
     }
 
     /// Flat `[x1, y1, x2, y2, x3, y3]` — the layout the GPU `score_triangles` kernel consumes.
+    /// Triangle-only: the GPU batch path is triangle-specific until CORE-3b generalizes the kernels.
     pub fn triangle_coords(&self) -> [i32; 6] {
         match self {
             Shape::Triangle(t) => [t.x1, t.y1, t.x2, t.y2, t.x3, t.y3],
+            Shape::Ellipse(_) | Shape::Rectangle(_) => {
+                panic!("triangle_coords called on a non-triangle shape; the GPU batch path is triangle-only until CORE-3b")
+            }
         }
     }
 }
 
+/// Clamp to `[lo, hi]` with fogleman's `clampInt` semantics: the lower bound wins when `lo > hi`
+/// (Go checks `x < lo` first). Identical to `max(lo).min(hi)` whenever `lo <= hi` (the only case the
+/// Triangle clamps hit); the `lo > hi` branch matters only for radii clamps on a 1-px-dim canvas.
 #[inline]
 fn clamp_i32(x: i32, lo: i32, hi: i32) -> i32 {
-    x.max(lo).min(hi)
+    if x < lo {
+        lo
+    } else if x > hi {
+        hi
+    } else {
+        x
+    }
 }
 
 #[inline]
@@ -164,6 +193,127 @@ impl Triangle {
         format!(
             "<polygon {} points=\"{},{} {},{} {},{}\" />",
             attrs, self.x1, self.y1, self.x2, self.y2, self.x3, self.y3
+        )
+    }
+}
+
+/// An axis-aligned ellipse: centre `(x, y)`, radii `(rx, ry)`. Port of fogleman's `Ellipse`
+/// (the non-rotated, non-circle variant). Always valid — no sliver rejection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Ellipse {
+    pub x: i32,
+    pub y: i32,
+    pub rx: i32,
+    pub ry: i32,
+}
+
+impl Ellipse {
+    fn random(w: i32, h: i32, rng: &mut Rng) -> Ellipse {
+        Ellipse {
+            x: rng.intn(w),
+            y: rng.intn(h),
+            rx: rng.intn(32) + 1,
+            ry: rng.intn(32) + 1,
+        }
+    }
+
+    fn mutate(&mut self, w: i32, h: i32, rng: &mut Rng) {
+        match rng.intn(3) {
+            0 => {
+                self.x = clamp_i32(self.x + (rng.norm() * 16.0) as i32, 0, w - 1);
+                self.y = clamp_i32(self.y + (rng.norm() * 16.0) as i32, 0, h - 1);
+            }
+            1 => {
+                self.rx = clamp_i32(self.rx + (rng.norm() * 16.0) as i32, 1, w - 1);
+            }
+            _ => {
+                self.ry = clamp_i32(self.ry + (rng.norm() * 16.0) as i32, 1, h - 1);
+            }
+        }
+    }
+
+    fn rasterize(&self, w: i32, h: i32) -> Vec<Scanline> {
+        let mut buf = Vec::new();
+        rasterize_ellipse(self.x, self.y, self.rx, self.ry, w, h, &mut buf);
+        // Defensive only: fogleman's Ellipse.Rasterize self-clips x and skips out-of-frame rows, so
+        // with cx/cy in-bounds (random/mutate enforce it) this crop is a no-op — kept for safety.
+        crop_scanlines(&mut buf, w, h);
+        buf
+    }
+
+    fn svg(&self, attrs: &str) -> String {
+        format!(
+            "<ellipse {} cx=\"{}\" cy=\"{}\" rx=\"{}\" ry=\"{}\" />",
+            attrs, self.x, self.y, self.rx, self.ry
+        )
+    }
+}
+
+/// An axis-aligned rectangle with inclusive opposite corners `(x1, y1)`–`(x2, y2)`. Port of
+/// fogleman's `Rectangle`. Corners may be unsorted; `bounds`/raster/SVG normalize. Always valid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rectangle {
+    pub x1: i32,
+    pub y1: i32,
+    pub x2: i32,
+    pub y2: i32,
+}
+
+impl Rectangle {
+    fn random(w: i32, h: i32, rng: &mut Rng) -> Rectangle {
+        let x1 = rng.intn(w);
+        let y1 = rng.intn(h);
+        let x2 = clamp_i32(x1 + rng.intn(32) + 1, 0, w - 1);
+        let y2 = clamp_i32(y1 + rng.intn(32) + 1, 0, h - 1);
+        Rectangle { x1, y1, x2, y2 }
+    }
+
+    /// Sorted inclusive corners `(x1, y1, x2, y2)` with `x1 ≤ x2`, `y1 ≤ y2` — fogleman's `bounds`.
+    fn bounds(&self) -> (i32, i32, i32, i32) {
+        let (xa, xb) = if self.x1 <= self.x2 {
+            (self.x1, self.x2)
+        } else {
+            (self.x2, self.x1)
+        };
+        let (ya, yb) = if self.y1 <= self.y2 {
+            (self.y1, self.y2)
+        } else {
+            (self.y2, self.y1)
+        };
+        (xa, ya, xb, yb)
+    }
+
+    fn mutate(&mut self, w: i32, h: i32, rng: &mut Rng) {
+        match rng.intn(2) {
+            0 => {
+                self.x1 = clamp_i32(self.x1 + (rng.norm() * 16.0) as i32, 0, w - 1);
+                self.y1 = clamp_i32(self.y1 + (rng.norm() * 16.0) as i32, 0, h - 1);
+            }
+            _ => {
+                self.x2 = clamp_i32(self.x2 + (rng.norm() * 16.0) as i32, 0, w - 1);
+                self.y2 = clamp_i32(self.y2 + (rng.norm() * 16.0) as i32, 0, h - 1);
+            }
+        }
+    }
+
+    fn rasterize(&self, w: i32, h: i32) -> Vec<Scanline> {
+        let mut buf = Vec::new();
+        rasterize_rectangle(self.x1, self.y1, self.x2, self.y2, &mut buf);
+        // Defensive only: corners are always in-bounds (random/mutate clamp), so crop is a no-op
+        // here — fogleman's Rectangle.Rasterize doesn't crop; kept for safety/consistency.
+        crop_scanlines(&mut buf, w, h);
+        buf
+    }
+
+    fn svg(&self, attrs: &str) -> String {
+        let (xa, ya, xb, yb) = self.bounds();
+        format!(
+            "<rect {} x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" />",
+            attrs,
+            xa,
+            ya,
+            xb - xa + 1,
+            yb - ya + 1
         )
     }
 }

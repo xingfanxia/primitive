@@ -43,10 +43,11 @@ core (pure) ← compute (ports) ← engine (orchestration) ← adapters / app (c
 - **CORE-1 golden** (SSIM ≥ 0.999 determinism + final score within 1% of fogleman) — `tests/golden.rs`.
 - **CORE-2 parity + CPU baseline** — `crates/primitive-engine/tests/cpu_baseline.rs` (byte-identical to core; prints shapes/sec).
 - **GPU-1/2/3** — integer-SSE parity + on-device search in `crates/primitive-gpu-cubecl/tests/*` (Metal; `make verify` runs them). The **throughput** thresholds (GPU-2 ≥20×, GPU-3 ≥460 sps) are hardware-dependent → enforced by `make perf`, not `make verify` (see `tests/common/mod.rs`); the PSNR + integer-parity gates stay in `make verify`.
+- **CORE-3 Part A** (Ellipse + Rectangle, core + CPU) — `crates/primitive-core/tests/shapes.rs` (rasterizer geometry, determinism, effectiveness). GPU kernels + GUI selector for the new shapes are CORE-3b/c; `Shape::triangle_coords()` panics for non-triangles until then.
 - **GUI-2** — the §5A interaction gates in `crates/primitive-app/tests/*` (`state_suite` pure-state matrix,
   `e2e` load→100→SVG, `forced_cpu` device chip, `a11y_tree` AccessKit, `a11y_tokens` WCAG/Reduce-Motion).
 
-Full milestone state (CORE-1/2 · GPU-1/2/3 · GUI-1/2 · PKG-1 Part A — all ✅) lives in `.agent/PROGRESS.md` + `.agent/EVIDENCE.md`.
+Full milestone state (CORE-1/2 · GPU-1/2/3 · GUI-1/2 · PKG-1 Part A · CORE-3 Part A — all ✅) lives in `.agent/PROGRESS.md` + `.agent/EVIDENCE.md`.
 
 ## Rules for changes here
 
