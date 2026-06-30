@@ -1,0 +1,17 @@
+[package]
+name = "primitive-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Pure domain core for primitive: shapes, rasterization, closed-form color, delta-SSE scoring, and the (1+1)-ES / hill-climb optimizer. No GPU, no IO, no wgpu."
+
+[lints.rust]
+# core is the deterministic repair target; keep it honest.
+unsafe_code = "forbid"
+
+[dev-dependencies]
+image = { workspace = true }
+# Test-only: parse the committed fogleman parity fixture (tests/fixtures/parity_fogleman.json).
+# Value-based parsing only — no serde derive dependency.
+serde_json = "1.0"

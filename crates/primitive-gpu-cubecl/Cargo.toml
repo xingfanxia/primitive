@@ -1,0 +1,15 @@
+[package]
+name = "primitive-gpu-cubecl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "GPU adapter: CubeCL #[cube] kernels compiling to Metal (wgpu) and CUDA from one source. Implements the ShapeSearch port; checked against the CPU oracle for exact integer parity."
+
+[dependencies]
+primitive-core = { path = "../primitive-core" }
+primitive-compute = { path = "../primitive-compute" }
+# CubeCL 0.10 (re-checked latest 2026-06-27; plan pinned 0.9.x before 0.10 went stable).
+# wgpu feature → native Metal on macOS. CUDA backend (GPU-4) adds the "cuda" feature later.
+cubecl = { version = "0.10", features = ["wgpu"] }
+bytemuck = "1"

@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/primitive-core",
+    "crates/primitive-compute",
+    "crates/primitive-gpu-cpu",
+    "crates/primitive-gpu-cubecl",
+    "crates/primitive-engine",
+    "crates/primitive-app",
+]
+
+# primitive-app is the GUI shell / composition root (GUI-1, plan §5/§5A). The GPU adapter
+# (primitive-gpu-cubecl) implements the same ShapeSearch port as the CPU oracle
+# (see docs/plan/primitive-2026-architecture.md §6/§7).
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.85"
+
+[workspace.dependencies]
+# Pinned deliberately; re-checked latest 2026-06-27 (cargo search). See plan §Standing rules.
+rayon = "1.12"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

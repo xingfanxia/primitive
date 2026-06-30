@@ -1,0 +1,13 @@
+[package]
+name = "primitive-compute"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Ports (traits + DTOs) the engine calls to search for shapes. No concrete backend — CPU and CubeCL adapters implement these."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+primitive-core = { path = "../primitive-core" }

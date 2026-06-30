@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    # macOS arm64 matches the dev/golden arch so the fixed-seed golden stays deterministic
+    # (cross-arch float determinism is a GPU-3 concern — see plan §6.6 / .agent/PROGRESS.md).
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+      - name: make verify
+        run: make verify

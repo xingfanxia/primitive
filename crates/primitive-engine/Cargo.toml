@@ -1,0 +1,19 @@
+[package]
+name = "primitive-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Application layer: orchestrates the per-shape run loop through the ShapeSearch port. Owns canvas state (primitive_core::Model); never names a concrete backend."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+primitive-core = { path = "../primitive-core" }
+primitive-compute = { path = "../primitive-compute" }
+
+[dev-dependencies]
+# Composition root for tests/benches lives here (allowed to wire a concrete adapter).
+primitive-gpu-cpu = { path = "../primitive-gpu-cpu" }
+image = { workspace = true }

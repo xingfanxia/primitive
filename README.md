@@ -33,10 +33,38 @@ Transform photos into stunning geometric art using triangles, rectangles, and ot
 - **SVG Output**: Generate infinitely scalable vector graphics
 - **Optimization Algorithms**: Intelligent shape selection for optimal results
 
-This repository contains two implementations of the Primitive algorithm:
+This repository contains three implementations of the Primitive algorithm:
 
-1. **Original Go Implementation** - The classic CPU-based implementation with hill climbing optimization
-2. **Python Implementation** - A modern PyTorch-based version with differential evolution and advanced animation controls
+1. **Rust Rebuild (2026, active)** — a GPU-native rewrite with a simple macOS desktop app. **This is the current focus.**
+2. **Original Go Implementation** - The classic CPU-based implementation with hill climbing optimization
+3. **Python Implementation** - A PyTorch/MPS experiment (the GPU path here was *slower* than CPU — the regression the Rust rebuild fixes)
+
+### Rust Rebuild (2026) — GPU-native desktop app
+
+A from-scratch Rust rewrite (hexagonal crates under [`crates/`](crates/)) that runs the whole search on the
+GPU via CubeCL→Metal with **bitwise-deterministic integer scoring**, plus a one-window `eframe` desktop app
+whose hero is the live reconstruction canvas. Triangles only for now (more shape types are a planned core
+milestone). Spec + status: [`docs/plan/primitive-2026-architecture.md`](docs/plan/primitive-2026-architecture.md),
+[`AGENTS.md`](AGENTS.md), [`.agent/PROGRESS.md`](.agent/PROGRESS.md).
+
+```bash
+# Run the desktop app (drop an image or click a bundled sample, then Start)
+cargo run -p primitive-app --release
+
+# Verify correctness (fmt + clippy + boundaries + tests) — the CI gate
+make verify
+
+# Enforce the GPU throughput claims (≥20× / ≥460 sps) — representative hardware only (Apple Silicon / NVIDIA);
+# make verify measures + prints these but doesn't assert them (a shared CI GPU is too slow for a portable number)
+make perf
+
+# Build the macOS .app bundle (PKG-1 Part A — stops before codesign; signing is a separate manual step)
+make bundle
+```
+
+> Toolchain note: this crate pins a rustup toolchain (`rust-toolchain.toml`). If Homebrew's `cargo` shadows
+> rustup, put `~/.cargo/bin` ahead of `/opt/homebrew/bin` on `PATH`. Force the CPU path with
+> `PRIMITIVE_FORCE_CPU=1` (shows the amber "CPU (no GPU found)" chip).
 
 ## Showcase Gallery
 
