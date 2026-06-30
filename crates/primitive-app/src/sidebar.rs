@@ -4,6 +4,8 @@
 
 use eframe::egui;
 
+use primitive_core::ShapeType;
+
 use crate::app::{Action, PrimitiveApp};
 use crate::image_io;
 use crate::state::{Primary, Ui};
@@ -47,8 +49,13 @@ pub fn show(app: &mut PrimitiveApp, state: &Ui, ui: &mut egui::Ui) -> Option<Act
     ui.add_enabled_ui(state.controls_editable, |ui| {
         ui.horizontal(|ui| {
             ui.label(s.type_label);
-            let _ = ui.selectable_label(true, s.triangle);
-            ui.label(egui::RichText::new(s.more_soon).weak().small());
+            ui.selectable_value(&mut app.params.shape_type, ShapeType::Triangle, s.triangle);
+            ui.selectable_value(&mut app.params.shape_type, ShapeType::Ellipse, s.ellipse);
+            ui.selectable_value(
+                &mut app.params.shape_type,
+                ShapeType::Rectangle,
+                s.rectangle,
+            );
         });
         ui.add(egui::Slider::new(&mut app.params.count, 1..=2000).text(s.count));
         ui.add(egui::Slider::new(&mut app.params.alpha, 1..=255).text(s.alpha));

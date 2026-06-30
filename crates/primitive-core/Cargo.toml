@@ -10,6 +10,14 @@ description = "Pure domain core for primitive: shapes, rasterization, closed-for
 # core is the deterministic repair target; keep it honest.
 unsafe_code = "forbid"
 
+[dependencies]
+# Optional, off by default — keeps core pure unless a consumer needs to persist a domain type.
+# The `serde` feature derives Serialize/Deserialize on `ShapeType` (the app persists it in its params).
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+serde = ["dep:serde"]
+
 [dev-dependencies]
 image = { workspace = true }
 # Test-only: parse the committed fogleman parity fixture (tests/fixtures/parity_fogleman.json).

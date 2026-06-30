@@ -13,7 +13,7 @@ path = "src/main.rs"
 [dependencies]
 # Composition root — the ONLY place adapters are imported (plan §5 import-direction rule). Both the
 # CPU oracle (live streaming) and the GPU adapter (device probe + "instant" mode) are wired here.
-primitive-core = { path = "../primitive-core" }
+primitive-core = { path = "../primitive-core", features = ["serde"] }
 primitive-compute = { path = "../primitive-compute" }
 primitive-engine = { path = "../primitive-engine" }
 primitive-gpu-cpu = { path = "../primitive-gpu-cpu" }

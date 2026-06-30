@@ -17,7 +17,9 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-rust-version = "1.85"
+# Matches what the dependency graph actually builds under (cubecl 0.10 / eframe 0.34.3 need ≥ 1.92);
+# the toolchain is pinned in rust-toolchain.toml. Keep these consistent so a fresh agent isn't misled.
+rust-version = "1.92"
 
 [workspace.dependencies]
 # Pinned deliberately; re-checked latest 2026-06-27 (cargo search). See plan §Standing rules.

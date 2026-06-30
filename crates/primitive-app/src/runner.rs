@@ -44,6 +44,7 @@ pub struct Frame {
 /// Live config for a run (core controls + the Advanced power-user knobs + the chosen backend).
 pub struct RunConfig {
     pub target: Canvas,
+    pub shape_type: ShapeType,
     pub count: usize,
     pub alpha: i32,
     pub seed: u64,
@@ -66,12 +67,20 @@ impl RunHandle {
     }
 }
 
+/// Whether a run takes the GPU "instant" path: a GPU device **and** a triangle. GPU instant mode is
+/// triangle-only until CORE-3b generalizes the kernels, so ellipse/rect always stream on the CPU
+/// adapter (which supports every shape type). Pure + hardware-independent so the routing guard is
+/// unit-testable on any runner — not via a GPU-dependent observable a CPU fallback could mask.
+fn should_use_gpu(device: Device, shape: ShapeType) -> bool {
+    matches!(device, Device::Metal | Device::Cuda) && shape == ShapeType::Triangle
+}
+
 /// Spawn the optimizer thread (CPU streaming or GPU instant, per `cfg.device`) and return a handle.
 pub fn start(cfg: RunConfig) -> RunHandle {
     let (tx, rx) = channel::<Frame>();
     let control = Arc::new(AtomicU8::new(RUN));
     let ctrl = control.clone();
-    let gpu = matches!(cfg.device, Device::Metal | Device::Cuda);
+    let gpu = should_use_gpu(cfg.device, cfg.shape_type);
     thread::spawn(move || {
         if gpu {
             gpu_instant(cfg, &tx);
@@ -88,7 +97,7 @@ fn cpu_stream(cfg: RunConfig, tx: &Sender<Frame>, control: &Arc<AtomicU8>) {
     let mut engine = Engine::with_average_background(cfg.target, CpuSearch::new(w, h));
     let mut budget = SearchBudget::triangles_default();
     budget.alpha = cfg.alpha;
-    budget.shape_type = ShapeType::Triangle;
+    budget.shape_type = cfg.shape_type;
     budget.n = cfg.n;
     budget.age = cfg.age;
     budget.m = cfg.m;
@@ -182,6 +191,7 @@ mod tests {
         let target = image_io::downscale(&target, 48); // tiny → fast in debug
         let handle = start(RunConfig {
             target,
+            shape_type: ShapeType::Triangle,
             count: 8,
             alpha: 128,
             seed: 1,
@@ -198,5 +208,20 @@ mod tests {
         };
         let svg = svg.expect("CPU done frame carries the SVG");
         assert!(svg.contains("<svg") && svg.contains("polygon"));
+    }
+
+    /// CORE-3c guard: GPU instant mode runs only for a triangle on a GPU device; every other
+    /// combination streams on the CPU adapter. Tests the pure routing decision directly, so deleting
+    /// the guard fails this on ANY runner (an observable like `<ellipse>` in the output can be masked
+    /// by the `catch_unwind → cpu_stream` fallback on a GPU-less machine). The full ellipse plumbing
+    /// is covered end-to-end by `tests/e2e.rs::ellipse_run_exports_ellipse_svg`.
+    #[test]
+    fn gpu_routing_is_triangle_and_gpu_device_only() {
+        assert!(should_use_gpu(Device::Metal, ShapeType::Triangle));
+        assert!(should_use_gpu(Device::Cuda, ShapeType::Triangle));
+        assert!(!should_use_gpu(Device::Metal, ShapeType::Ellipse));
+        assert!(!should_use_gpu(Device::Metal, ShapeType::Rectangle));
+        assert!(!should_use_gpu(Device::Cuda, ShapeType::Ellipse));
+        assert!(!should_use_gpu(Device::CpuFallback, ShapeType::Triangle));
     }
 }
