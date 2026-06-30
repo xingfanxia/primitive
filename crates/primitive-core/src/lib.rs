@@ -46,4 +46,4 @@ pub use philox::{mulhilo, philox, rand_below, rand_u32};
 pub use raster::{rasterize_triangle_int, triangle_inside, Scanline};
 pub use rng::Rng;
 pub use score::{delta_sse_partial, difference_full, difference_partial, sse_full};
-pub use shape::{Shape, ShapeType, Triangle};
+pub use shape::{Ellipse, Rectangle, Shape, ShapeType, Triangle};

@@ -206,3 +206,19 @@ generated offline by `scripts/ops/gen-icon.py` (PIL only, the app's own transluc
 Part B done-gate (interactive, on a **clean** machine — verified off-`/goal`, plan §7 PKG-1):
 `xcrun stapler validate primitive.app` → "worked"; `spctl --assess --type execute primitive.app` →
 `accepted … source=Notarized Developer ID`.
+
+## CORE-3 Part A — Ellipse + Rectangle (core + CPU) (2026-06-29)
+
+### Shape support — `crates/primitive-core/tests/shapes.rs`
+```
+Ellipse:   score 0.23835 -> 0.02468 (10% of initial) over 60 shapes, PSNR 32.15 dB
+Rectangle: score 0.23835 -> 0.02220 ( 9% of initial) over 60 shapes, PSNR 33.07 dB
+test result: ok. 6 passed; 0 failed
+```
+Verbatim ports of fogleman's `ellipse.go` / `rectangle.go`. Three gates (the triangle-only fogleman
+parity fixture isn't extended yet — CORE-3a.2): **rasterizer geometry** hand-verified (radius-3 circle
+half-widths `int(sqrt(9−dy²))` = centre [2,8] / mirror [3,7]; rectangle one-span-per-row, corner-order
+invariant; edge-clamping); **determinism** byte-identical reconstruction for the same seed; **effective-
+ness** above (60 shapes ⇒ ~9–10% of the flat baseline, 32–33 dB). The CPU optimizer/model needed **zero
+changes** — `Shape::random/mutate/rasterize/svg` dispatch polymorphically. GPU kernels (CORE-3b) + GUI
+selector (CORE-3c) are the follow-ups; `triangle_coords()` panics for non-triangles until 3b.

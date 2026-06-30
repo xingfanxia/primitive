@@ -146,6 +146,71 @@ fn rasterize_triangle_top(
     }
 }
 
+/// Rasterize an axis-aligned ellipse centred `(cx, cy)` with radii `(rx, ry)` into scanlines —
+/// faithful port of fogleman's `Ellipse.Rasterize`. Each row's half-width is the analytic
+/// `sqrt(ry² − dy²) · (rx/ry)`, truncated toward zero (Go's `int(...)`); x is clamped to the image
+/// and the centre row is emitted once (`dy > 0` guards the mirrored row). The caller crops for the
+/// final contract. Requires `ry ≥ 1` (guaranteed by the shape's random/mutate bounds).
+pub fn rasterize_ellipse(
+    cx: i32,
+    cy: i32,
+    rx: i32,
+    ry: i32,
+    w: i32,
+    h: i32,
+    buf: &mut Vec<Scanline>,
+) {
+    let aspect = rx as f64 / ry as f64;
+    for dy in 0..ry {
+        let y1 = cy - dy;
+        let y2 = cy + dy;
+        if (y1 < 0 || y1 >= h) && (y2 < 0 || y2 >= h) {
+            continue;
+        }
+        let s = (((ry * ry - dy * dy) as f64).sqrt() * aspect) as i32;
+        let mut x1 = cx - s;
+        let mut x2 = cx + s;
+        if x1 < 0 {
+            x1 = 0;
+        }
+        if x2 >= w {
+            x2 = w - 1;
+        }
+        if y1 >= 0 && y1 < h {
+            buf.push(Scanline {
+                y: y1,
+                x1,
+                x2,
+                alpha: 0xffff,
+            });
+        }
+        if y2 >= 0 && y2 < h && dy > 0 {
+            buf.push(Scanline {
+                y: y2,
+                x1,
+                x2,
+                alpha: 0xffff,
+            });
+        }
+    }
+}
+
+/// Rasterize an axis-aligned rectangle with inclusive opposite corners `(x1, y1)`–`(x2, y2)` (any
+/// winding; sorted internally to fogleman's `bounds()`) into one span per row — port of
+/// fogleman's `Rectangle.Rasterize`. The caller crops to the image.
+pub fn rasterize_rectangle(x1: i32, y1: i32, x2: i32, y2: i32, buf: &mut Vec<Scanline>) {
+    let (xa, xb) = if x1 <= x2 { (x1, x2) } else { (x2, x1) };
+    let (ya, yb) = if y1 <= y2 { (y1, y2) } else { (y2, y1) };
+    for y in ya..=yb {
+        buf.push(Scanline {
+            y,
+            x1: xa,
+            x2: xb,
+            alpha: 0xffff,
+        });
+    }
+}
+
 // ── Deterministic integer rasterizer (the GPU-shared path) ───────────────────────────────
 //
 // `rasterize_triangle` above is fogleman's f64 edge-walk — the *reference* raster (CORE/golden).
