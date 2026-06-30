@@ -3,12 +3,17 @@
 //!   - throughput ≥ **460 shapes/sec** — the documented "≥ 20× the CORE-2 CPU baseline" target
 //!     (the established baseline is ~22–24 shapes/sec at 128×128; the GPU is i32-capped to 64×64,
 //!     so the absolute 460 sps figure is the stable cross-resolution target, not a same-run ratio
-//!     against the unusually-fast 64×64 CPU);
-//!   - final PSNR within **0.5 dB** of the CPU reference run on the same target.
+//!     against the unusually-fast 64×64 CPU). This is **hardware-dependent**: only enforced under
+//!     `PRIMITIVE_PERF_GATE` (`make perf`) on representative hardware; `make verify` / CI measures +
+//!     prints only (see `tests/common/mod.rs`);
+//!   - final PSNR within **0.5 dB** of the CPU reference run on the same target — hardware-
+//!     independent, so it stays an unconditional gate everywhere.
 //!
 //! The CPU side is the fogleman-reference hill-climb (`primitive_core::Model`); the GPU side is the
 //! on-device Philox + energy-targeted + annealed parallel hill-climb + commit loop. Independent
 //! optimizers, so quality is compared by PSNR, not pixels.
+
+mod common;
 
 use std::time::Instant;
 
@@ -93,10 +98,9 @@ fn gpu3_end_to_end_meets_throughput_and_psnr_gates() {
         gpu_sps / cpu_sps
     );
 
-    assert!(
-        gpu_sps >= TARGET_SPS,
-        "GPU {gpu_sps:.0} shapes/s < {TARGET_SPS:.0} target (≥20× CORE-2 baseline)"
-    );
+    // Hardware-dependent throughput gate — opt-in via PRIMITIVE_PERF_GATE / `make perf`.
+    common::perf_gate_min(gpu_sps, TARGET_SPS, "GPU-3 throughput (shapes/sec)");
+    // Quality gate — hardware-independent, always enforced.
     assert!(
         gpu_psnr >= cpu_psnr - 0.5,
         "GPU PSNR {gpu_psnr:.2} dB is >0.5 dB below CPU {cpu_psnr:.2} dB"

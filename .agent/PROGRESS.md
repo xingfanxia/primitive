@@ -1,6 +1,10 @@
 # PROGRESS — primitive 2026 rebuild
 
-Milestone naming per plan §7. "Done" = the §7 gate passes via `make verify`. Evidence is the
+Milestone naming per plan §7. "Done" = the §7 gate passes via `make verify` (correctness: parity,
+golden, PSNR, a11y, boundaries — what CI runs). **Hardware-dependent throughput gates** (GPU-2 ≥20×,
+GPU-3 ≥460 sps) run separately via `make perf` on representative hardware — they measure-and-print
+under `make verify`/CI but only hard-assert under `PRIMITIVE_PERF_GATE` (a shared CI GPU is too slow
+for a portable numeric gate; see `crates/primitive-gpu-cubecl/tests/common/mod.rs`). Evidence is the
 command + its printed numbers, not prose confidence.
 
 ## CORE-1 — pure-Rust scalar port — ✅ DONE (2026-06-27)

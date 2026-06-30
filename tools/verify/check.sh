@@ -26,7 +26,8 @@ done < <(find "$ROOT/crates" -path '*/src/*.rs' -not -path '*/target/*')
 if [ "$big" -ne 0 ]; then echo "FAIL: file(s) over the 500 LOC architecture gate"; rc=1; else echo "  ok — all src files within budget"; fi
 
 step "cargo test (workspace, release)"
-cargo test --workspace --release || rc=1
+# --no-fail-fast: run every test binary so one CI run surfaces ALL failures, not just the first.
+cargo test --workspace --release --no-fail-fast || rc=1
 
 echo
 if [ "$rc" -eq 0 ]; then echo "verify: ALL GREEN"; else echo "verify: FAILED"; fi

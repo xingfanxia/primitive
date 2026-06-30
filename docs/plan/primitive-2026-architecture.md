@@ -390,6 +390,13 @@ looks plausible. The CPU adapter (`primitive-gpu-cpu`) is a permanent parity ora
 | **GPU-4** | CUDA backend via the **same** `#[cube]` source on Windows/NVIDIA. | Same parity test as GPU-2 on NVIDIA; throughput ≥ 20× a Windows CPU baseline; **golden output cross-checked bit-for-bit (integer path) against the Metal run.** |
 | **PKG-2** | Windows packaging (MSI/exe); code-signing later. | Installer runs on clean Windows; app launches and completes a 100-shape run. |
 
+> **Throughput gates are hardware-dependent.** The ≥20× / ≥460 sps thresholds (GPU-2, GPU-3, GPU-4)
+> hold on representative target hardware (Apple Silicon / discrete NVIDIA) and are enforced by
+> `make perf` (`PRIMITIVE_PERF_GATE=1`). The always-run `make verify` / CI gate is **correctness only**
+> (parity, golden, PSNR, a11y, boundaries) — it measures + prints throughput but does not assert a
+> fixed number, because a shared/virtualized CI GPU is far slower (observed 9.6× vs 43.9×). See
+> `crates/primitive-gpu-cubecl/tests/common/mod.rs`.
+
 ---
 
 ## 8. Risks & mitigations (top 5)
