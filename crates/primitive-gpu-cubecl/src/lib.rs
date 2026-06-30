@@ -19,11 +19,12 @@
 mod kernels;
 mod score_shapes;
 mod search;
+mod search_shapes;
 
 use cubecl::prelude::*;
 use cubecl::server::Handle;
 use cubecl::wgpu::WgpuRuntime;
-use primitive_core::Canvas;
+use primitive_core::{Canvas, ShapeType};
 
 const THREADS: u32 = 64;
 
@@ -272,6 +273,9 @@ pub struct OptConfig {
     pub shapes: usize,
     pub alpha: i32,
     pub seed: u32,
+    /// Which primitive to fit. Triangle uses the 6-int `evolve`/`commit`; ellipse/rect the 4-int
+    /// `evolve_ellipse`/`evolve_rect` + matching commit (CORE-3b.3).
+    pub shape_type: ShapeType,
 }
 
 /// GPU-3: run the whole search loop on-device and return the final reconstruction.
@@ -288,44 +292,126 @@ pub fn gpu_optimize(target: &Canvas, cfg: &OptConfig) -> Canvas {
     let n_pix = target_i32.len();
     let w = target.w as i32;
     let h = target.h as i32;
+    // The ellipse/rect search reaches `inside_ellipse`'s i32 degree-4 product, which overflows once a
+    // radius exceeds ~181 (radii clamp to `w-1`/`h-1`). Mirrors the `score_ellipses` dispatch guard;
+    // triangles use the edge-function path and aren't bound by it. The app caps at GPU_INSTANT_MAX=128.
+    debug_assert!(
+        cfg.shape_type == ShapeType::Triangle || (w <= 182 && h <= 182),
+        "gpu_optimize: {w}×{h} exceeds the i32-safe ellipse/rect bound (§6.6)"
+    );
 
     let client = WgpuRuntime::client(&Default::default());
     let target_h = client.create_from_slice(bytemuck::cast_slice(&target_i32));
     let current_h = client.create_from_slice(bytemuck::cast_slice(&current_i32));
     let best_delta_h = client.empty(cfg.workers * core::mem::size_of::<i32>());
-    let best_tri_h = client.empty(cfg.workers * 6 * core::mem::size_of::<i32>());
+    // 6 ints/worker for a triangle, 4 for an ellipse/rect.
+    let stride = if cfg.shape_type == ShapeType::Triangle {
+        6
+    } else {
+        4
+    };
+    let best_param_h = client.empty(cfg.workers * stride * core::mem::size_of::<i32>());
+    let plen = cfg.workers * stride;
+    let evolve_cubes = CubeCount::Static((cfg.workers as u32).div_ceil(THREADS), 1, 1);
+    let evolve_dim = CubeDim::new_1d(THREADS);
+    let commit_cubes = CubeCount::Static(1, 1, 1);
+    let commit_dim = CubeDim::new_1d(1);
 
     for step in 0..cfg.shapes {
         unsafe {
-            search::evolve::launch_unchecked::<WgpuRuntime>(
-                &client,
-                CubeCount::Static((cfg.workers as u32).div_ceil(THREADS), 1, 1),
-                CubeDim::new_1d(THREADS),
-                ArrayArg::from_raw_parts(target_h.clone(), n_pix),
-                ArrayArg::from_raw_parts(current_h.clone(), n_pix),
-                cfg.seed,
-                step as u32,
-                cfg.alpha,
-                w,
-                h,
-                cfg.age,
-                ArrayArg::from_raw_parts(best_delta_h.clone(), cfg.workers),
-                ArrayArg::from_raw_parts(best_tri_h.clone(), cfg.workers * 6),
-            );
-            // commit fuses the argmin (over best_delta) + composite — one launch, not two.
-            search::commit::launch_unchecked::<WgpuRuntime>(
-                &client,
-                CubeCount::Static(1, 1, 1),
-                CubeDim::new_1d(1),
-                ArrayArg::from_raw_parts(target_h.clone(), n_pix),
-                ArrayArg::from_raw_parts(current_h.clone(), n_pix),
-                ArrayArg::from_raw_parts(best_tri_h.clone(), cfg.workers * 6),
-                ArrayArg::from_raw_parts(best_delta_h.clone(), cfg.workers),
-                cfg.workers as i32,
-                cfg.alpha,
-                w,
-                h,
-            );
+            match cfg.shape_type {
+                ShapeType::Triangle => {
+                    search::evolve::launch_unchecked::<WgpuRuntime>(
+                        &client,
+                        evolve_cubes.clone(),
+                        evolve_dim,
+                        ArrayArg::from_raw_parts(target_h.clone(), n_pix),
+                        ArrayArg::from_raw_parts(current_h.clone(), n_pix),
+                        cfg.seed,
+                        step as u32,
+                        cfg.alpha,
+                        w,
+                        h,
+                        cfg.age,
+                        ArrayArg::from_raw_parts(best_delta_h.clone(), cfg.workers),
+                        ArrayArg::from_raw_parts(best_param_h.clone(), plen),
+                    );
+                    // commit fuses the argmin (over best_delta) + composite — one launch, not two.
+                    search::commit::launch_unchecked::<WgpuRuntime>(
+                        &client,
+                        commit_cubes.clone(),
+                        commit_dim,
+                        ArrayArg::from_raw_parts(target_h.clone(), n_pix),
+                        ArrayArg::from_raw_parts(current_h.clone(), n_pix),
+                        ArrayArg::from_raw_parts(best_param_h.clone(), plen),
+                        ArrayArg::from_raw_parts(best_delta_h.clone(), cfg.workers),
+                        cfg.workers as i32,
+                        cfg.alpha,
+                        w,
+                        h,
+                    );
+                }
+                ShapeType::Ellipse => {
+                    search_shapes::evolve_ellipse::launch_unchecked::<WgpuRuntime>(
+                        &client,
+                        evolve_cubes.clone(),
+                        evolve_dim,
+                        ArrayArg::from_raw_parts(target_h.clone(), n_pix),
+                        ArrayArg::from_raw_parts(current_h.clone(), n_pix),
+                        cfg.seed,
+                        step as u32,
+                        cfg.alpha,
+                        w,
+                        h,
+                        cfg.age,
+                        ArrayArg::from_raw_parts(best_delta_h.clone(), cfg.workers),
+                        ArrayArg::from_raw_parts(best_param_h.clone(), plen),
+                    );
+                    search_shapes::commit_ellipse::launch_unchecked::<WgpuRuntime>(
+                        &client,
+                        commit_cubes.clone(),
+                        commit_dim,
+                        ArrayArg::from_raw_parts(target_h.clone(), n_pix),
+                        ArrayArg::from_raw_parts(current_h.clone(), n_pix),
+                        ArrayArg::from_raw_parts(best_param_h.clone(), plen),
+                        ArrayArg::from_raw_parts(best_delta_h.clone(), cfg.workers),
+                        cfg.workers as i32,
+                        cfg.alpha,
+                        w,
+                        h,
+                    );
+                }
+                ShapeType::Rectangle => {
+                    search_shapes::evolve_rect::launch_unchecked::<WgpuRuntime>(
+                        &client,
+                        evolve_cubes.clone(),
+                        evolve_dim,
+                        ArrayArg::from_raw_parts(target_h.clone(), n_pix),
+                        ArrayArg::from_raw_parts(current_h.clone(), n_pix),
+                        cfg.seed,
+                        step as u32,
+                        cfg.alpha,
+                        w,
+                        h,
+                        cfg.age,
+                        ArrayArg::from_raw_parts(best_delta_h.clone(), cfg.workers),
+                        ArrayArg::from_raw_parts(best_param_h.clone(), plen),
+                    );
+                    search_shapes::commit_rect::launch_unchecked::<WgpuRuntime>(
+                        &client,
+                        commit_cubes.clone(),
+                        commit_dim,
+                        ArrayArg::from_raw_parts(target_h.clone(), n_pix),
+                        ArrayArg::from_raw_parts(current_h.clone(), n_pix),
+                        ArrayArg::from_raw_parts(best_param_h.clone(), plen),
+                        ArrayArg::from_raw_parts(best_delta_h.clone(), cfg.workers),
+                        cfg.workers as i32,
+                        cfg.alpha,
+                        w,
+                        h,
+                    );
+                }
+            }
         }
     }
 

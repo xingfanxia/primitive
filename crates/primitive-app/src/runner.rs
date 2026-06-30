@@ -153,6 +153,9 @@ fn gpu_instant(cfg: RunConfig, tx: &Sender<Frame>) {
         shapes: cfg.count,
         alpha: cfg.alpha,
         seed: cfg.seed as u32,
+        // Always Triangle today (`should_use_gpu` routes only triangles here); plumbed by value so
+        // the GPU ellipse/rect search (CORE-3b.3) is one guard-change away from a fast-preview mode.
+        shape_type: cfg.shape_type,
     };
     let start = Instant::now();
     let result =

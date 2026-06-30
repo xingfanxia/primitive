@@ -12,7 +12,13 @@ use cubecl::prelude::*;
 /// steers toward. L2 (matches `core::energy_map::residual_map`) biases harder toward hot pixels than
 /// L1 did, so the best-of-N anchor lands nearer the real error peaks. Max 3·255² = 195075, fits i32.
 #[cube]
-fn residual(target: &Array<i32>, current: &Array<i32>, px: i32, py: i32, width: i32) -> i32 {
+pub(crate) fn residual(
+    target: &Array<i32>,
+    current: &Array<i32>,
+    px: i32,
+    py: i32,
+    width: i32,
+) -> i32 {
     let idx = ((py * width + px) * 4) as usize;
     let dr = target[idx] - current[idx];
     let dg = target[idx + 1] - current[idx + 1];
@@ -150,8 +156,9 @@ pub fn evolve(
         let s = rand_u32(seed + step, w as u32);
         let mut ctr = 1u32;
 
-        // Energy-targeted anchor: the highest-residual of 4 random pixels (cheap restart bias
-        // toward error-heavy regions — fogleman's energy-map trick, sampled).
+        // Energy-targeted anchor: the highest-residual of 8 random pixels (cheap restart bias
+        // toward error-heavy regions — fogleman's energy-map trick, sampled). Same best-of-8 the
+        // shared `search_shapes::anchor` helper factors out for the ellipse/rect loops.
         let mut x0 = rand_below(s, ctr, width as u32) as i32;
         ctr += 1;
         let mut y0 = rand_below(s, ctr, height as u32) as i32;
