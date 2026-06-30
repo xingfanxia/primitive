@@ -145,7 +145,9 @@ Continue the plan (§7 GPU-4, PKG-2). Bring up the CUDA backend from the SAME #[
 
 /goal GPU-4 done: the GPU-2 parity test passes on NVIDIA hardware AND the integer-path golden output matches the
 Metal run bit-for-bit (paste a diff/hash showing identical bytes), with throughput >= 20x a Windows CPU baseline
-printed; or stop after 40 turns. (PKG-2 Windows installer + signing: run interactively, not under /goal.)
+printed by `make perf` (`PRIMITIVE_PERF_GATE=1` hard-asserts it; plain `cargo test`/`make verify` only prints —
+the threshold is hardware-dependent, see `crates/primitive-gpu-cubecl/tests/common/mod.rs`); or stop after 40
+turns. (PKG-2 Windows installer + signing: run interactively, not under /goal.)
 
 Skill(skill="autonomous-grind", args="start GPU-4 done: NVIDIA parity passes, integer golden bit-identical to Metal (hash pasted), >=20x Win CPU baseline, or 40 turns")
 ```

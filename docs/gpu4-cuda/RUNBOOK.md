@@ -27,7 +27,12 @@ straight through.
    (winning-candidate index + integer delta-SSE identical to the CPU oracle).
 2. **Cross-backend golden**: the integer-path output is **bit-for-bit identical to the Metal run**
    on the same fixture (paste a `sha256` of the score/canvas bytes from both machines).
-3. **Throughput ≥ 20× a same-machine single-core CPU baseline**, printed.
+3. **Throughput ≥ 20× a same-machine single-core CPU baseline** — hard-asserted only under
+   `PRIMITIVE_PERF_GATE=1` (run `make perf`, or `PRIMITIVE_PERF_GATE=1 cargo test -p
+   primitive-gpu-cubecl --release --features cuda --no-default-features --test gpu2_throughput
+   --test gpu3_optimize -- --nocapture`). Plain `cargo test` / `make verify` only prints the number
+   (the threshold is hardware-dependent — see `crates/primitive-gpu-cubecl/tests/common/mod.rs`).
+   On a discrete NVIDIA card this is representative hardware, so the gate is meaningful here.
 4. **The headline measurement**: GPU vs fogleman (`-j1` and all-cores) at 64 / 128 / 256 / 512,
    recorded in `.agent/EVIDENCE.md`. This is the number the Mac can't produce.
 

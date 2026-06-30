@@ -51,8 +51,12 @@ milestone). Spec + status: [`docs/plan/primitive-2026-architecture.md`](docs/pla
 # Run the desktop app (drop an image or click a bundled sample, then Start)
 cargo run -p primitive-app --release
 
-# Verify the whole workspace (the one gate)
+# Verify correctness (fmt + clippy + boundaries + tests) — the CI gate
 make verify
+
+# Enforce the GPU throughput claims (≥20× / ≥460 sps) — representative hardware only (Apple Silicon / NVIDIA);
+# make verify measures + prints these but doesn't assert them (a shared CI GPU is too slow for a portable number)
+make perf
 
 # Build the macOS .app bundle (PKG-1 Part A — stops before codesign; signing is a separate manual step)
 make bundle
