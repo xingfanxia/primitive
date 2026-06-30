@@ -8,6 +8,7 @@ use egui_kittest::kittest::Queryable;
 use egui_kittest::Harness;
 
 use primitive_app::app::PrimitiveApp;
+use primitive_core::ShapeType;
 
 #[test]
 fn accesskit_tree_has_controls_and_live_progress() {
@@ -33,17 +34,30 @@ fn accesskit_tree_has_controls_and_live_progress() {
     assert!(has("alpha"), "alpha control label in the AccessKit tree");
 
     // CORE-3c: the shape-type selector exposes all three options (renders + VoiceOver-readable).
-    assert!(
-        has("triangle"),
-        "triangle shape option in the AccessKit tree"
-    );
-    assert!(has("ellipse"), "ellipse shape option in the AccessKit tree");
-    assert!(has("rect"), "rectangle shape option in the AccessKit tree");
+    // Match the full glyph labels so the substring check can't collide with a future label.
+    assert!(has("△ triangle"), "triangle option in the AccessKit tree");
+    assert!(has("◯ ellipse"), "ellipse option in the AccessKit tree");
+    assert!(has("▭ rect"), "rectangle option in the AccessKit tree");
 
     // The live-progress node exists even before Start (idle reads "0/<count>"). Default count = 250.
     assert!(
         has("0/250"),
         "AccessKit tree must expose a live-progress node",
+    );
+
+    // …and clicking a shape option actually mutates the selection (closes the UI-binding loop).
+    // After all `has` (immutable-borrow) queries so the mutating `click`/`run` can take `&mut`.
+    assert_eq!(
+        harness.state().params.shape_type,
+        ShapeType::Triangle,
+        "default selection is triangle"
+    );
+    harness.get_by_label("◯ ellipse").click();
+    harness.run();
+    assert_eq!(
+        harness.state().params.shape_type,
+        ShapeType::Ellipse,
+        "clicking ◯ ellipse selects it",
     );
 
     unsafe { std::env::remove_var("PRIMITIVE_FORCE_CPU") };

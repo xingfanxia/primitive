@@ -340,7 +340,7 @@ impl PrimitiveApp {
     /// Keep ~80 evenly-spaced keyframes (plus the final) for a smooth, bounded GIF.
     fn capture_gif_frame(&mut self, canvas: &Canvas, idx: usize, total: usize, done: bool) {
         let stride = (total / 80).max(1);
-        if done || idx % stride == 0 {
+        if done || idx.is_multiple_of(stride) {
             self.gif_frames.push(image_io::downscale(canvas, 240));
         }
     }

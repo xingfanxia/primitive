@@ -228,8 +228,8 @@ follow-up; `triangle_coords()` panics for non-triangles until 3b.
 ### Shape selector wired end-to-end — `crates/primitive-app/`
 ```
 tests/e2e.rs::ellipse_run_exports_ellipse_svg ........ ok  (40 ellipses → <ellipse> SVG, no polygon)
-runner::tests::non_triangle_on_gpu_device_routes_to_cpu  ok  (Ellipse + Device::Metal → <ellipse>)
-tests/a11y_tree.rs ................................... ok  (triangle/ellipse/rect in AccessKit tree)
+runner::tests::gpu_routing_is_triangle_and_gpu_device_only  ok  (pure should_use_gpu: Triangle+GPU only)
+tests/a11y_tree.rs ................................... ok  (3 options in AccessKit tree + click mutates)
 make verify .......................................... verify: ALL GREEN
 ```
 Sidebar `selectable_value` (△ triangle · ◯ ellipse · ▭ rect) → persisted `params.shape_type` →

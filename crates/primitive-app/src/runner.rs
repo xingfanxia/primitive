@@ -67,15 +67,20 @@ impl RunHandle {
     }
 }
 
+/// Whether a run takes the GPU "instant" path: a GPU device **and** a triangle. GPU instant mode is
+/// triangle-only until CORE-3b generalizes the kernels, so ellipse/rect always stream on the CPU
+/// adapter (which supports every shape type). Pure + hardware-independent so the routing guard is
+/// unit-testable on any runner — not via a GPU-dependent observable a CPU fallback could mask.
+fn should_use_gpu(device: Device, shape: ShapeType) -> bool {
+    matches!(device, Device::Metal | Device::Cuda) && shape == ShapeType::Triangle
+}
+
 /// Spawn the optimizer thread (CPU streaming or GPU instant, per `cfg.device`) and return a handle.
 pub fn start(cfg: RunConfig) -> RunHandle {
     let (tx, rx) = channel::<Frame>();
     let control = Arc::new(AtomicU8::new(RUN));
     let ctrl = control.clone();
-    // GPU "instant" mode is triangle-only until CORE-3b generalizes the kernels; route ellipse/rect
-    // to the CPU streaming path even on a GPU device (the CPU adapter supports every shape type).
-    let gpu =
-        matches!(cfg.device, Device::Metal | Device::Cuda) && cfg.shape_type == ShapeType::Triangle;
+    let gpu = should_use_gpu(cfg.device, cfg.shape_type);
     thread::spawn(move || {
         if gpu {
             gpu_instant(cfg, &tx);
@@ -205,35 +210,18 @@ mod tests {
         assert!(svg.contains("<svg") && svg.contains("polygon"));
     }
 
-    /// CORE-3c guard: GPU instant mode is triangle-only, so a non-triangle shape with a GPU device
-    /// must run on the CPU path. Proven by the SVG carrying `<ellipse>` (not the triangles
-    /// gpu_optimize emits). The guard short-circuits before any GPU call, so this is safe on a
-    /// machine with or without Metal.
+    /// CORE-3c guard: GPU instant mode runs only for a triangle on a GPU device; every other
+    /// combination streams on the CPU adapter. Tests the pure routing decision directly, so deleting
+    /// the guard fails this on ANY runner (an observable like `<ellipse>` in the output can be masked
+    /// by the `catch_unwind → cpu_stream` fallback on a GPU-less machine). The full ellipse plumbing
+    /// is covered end-to-end by `tests/e2e.rs::ellipse_run_exports_ellipse_svg`.
     #[test]
-    fn non_triangle_on_gpu_device_routes_to_cpu() {
-        let (_, target) = image_io::load_bytes(image_io::SAMPLES[0].1).expect("sample decodes");
-        let target = image_io::downscale(&target, 48);
-        let handle = start(RunConfig {
-            target,
-            shape_type: ShapeType::Ellipse,
-            count: 6,
-            alpha: 128,
-            seed: 1,
-            n: 100,
-            age: 20,
-            m: 8,
-            device: Device::Metal,
-        });
-        let svg = loop {
-            let f = handle.rx.recv().expect("frames stream until done");
-            if f.done {
-                break f.svg;
-            }
-        };
-        let svg = svg.expect("CPU done frame carries the SVG");
-        assert!(
-            svg.contains("<ellipse"),
-            "ellipse ran on the CPU path despite the GPU device"
-        );
+    fn gpu_routing_is_triangle_and_gpu_device_only() {
+        assert!(should_use_gpu(Device::Metal, ShapeType::Triangle));
+        assert!(should_use_gpu(Device::Cuda, ShapeType::Triangle));
+        assert!(!should_use_gpu(Device::Metal, ShapeType::Ellipse));
+        assert!(!should_use_gpu(Device::Metal, ShapeType::Rectangle));
+        assert!(!should_use_gpu(Device::Cuda, ShapeType::Ellipse));
+        assert!(!should_use_gpu(Device::CpuFallback, ShapeType::Triangle));
     }
 }

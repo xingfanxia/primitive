@@ -243,11 +243,13 @@ CORE-3b. The CPU path is the live spectacle anyway, so ellipse/rect are fully us
 Gate evidence (all green in `make verify`):
 - **e2e** (`tests/e2e.rs::ellipse_run_exports_ellipse_svg`): Ellipse selected → 40-shape run through
   the real `runner` → SVG carries `<ellipse>` and **no** `polygon` (proves the type is plumbed).
-- **GPU-guard unit** (`runner::tests::non_triangle_on_gpu_device_routes_to_cpu`): Ellipse + `Device::Metal`
-  → still emits `<ellipse>` (routed to CPU before any GPU call; safe on any machine).
-- **a11y render** (`tests/a11y_tree.rs`): the headless egui_kittest render exposes `triangle` /
-  `ellipse` / `rect` options in the AccessKit tree — the native-app equivalent of a screenshot gate
-  (the selector renders with all three options).
+- **GPU-guard unit** (`runner::tests::gpu_routing_is_triangle_and_gpu_device_only`): the pure
+  `should_use_gpu(device, shape)` decision — GPU instant only for Triangle on a GPU device; ellipse/rect
+  always CPU. Hardware-independent, so deleting the guard fails on any runner (a code-review fix:
+  the prior `<ellipse>`-observable test could be masked by the `catch_unwind → cpu_stream` fallback).
+- **a11y render + mutation** (`tests/a11y_tree.rs`): the headless egui_kittest render exposes the
+  `△ triangle` / `◯ ellipse` / `▭ rect` options in the AccessKit tree, **and** clicking `◯ ellipse`
+  flips `params.shape_type` — the native-app equivalent of a screenshot + interaction gate.
 - Existing §5A state suite (18) + forced-CPU + a11y-tokens unchanged & green.
 
 Carry-forward: GPU instant mode for ellipse/rect is CORE-3b. The device chip still reads `Metal` when a
