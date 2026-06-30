@@ -44,12 +44,13 @@ core (pure) ← compute (ports) ← engine (orchestration) ← adapters / app (c
 - **CORE-2 parity + CPU baseline** — `crates/primitive-engine/tests/cpu_baseline.rs` (byte-identical to core; prints shapes/sec).
 - **GPU-1/2/3** — integer-SSE parity + on-device search in `crates/primitive-gpu-cubecl/tests/*` (Metal; `make verify` runs them). The **throughput** thresholds (GPU-2 ≥20×, GPU-3 ≥460 sps) are hardware-dependent → enforced by `make perf`, not `make verify` (see `tests/common/mod.rs`); the PSNR + integer-parity gates stay in `make verify`.
 - **CORE-3 Part A** (Ellipse + Rectangle, core + CPU) — `crates/primitive-core/tests/shapes.rs` (rasterizer geometry, determinism, effectiveness). `Shape::triangle_coords()` panics for non-triangles until the GPU kernels generalize (CORE-3b).
-- **CORE-3 Part B.1** (integer ellipse/rect rasterizers, the GPU-shared §6.6 path) — `crates/primitive-core/src/raster_int.rs` (new module; f64 golden reference stays in `raster.rs`). `ellipse_inside` = integer implicit test `ry²·dx²+rx²·dy² ≤ rx²·ry²`; `rasterize_ellipse_int`/`rasterize_rectangle_int`. Not yet GPU-wired (CORE-3b.2).
+- **CORE-3 Part B.1** (integer ellipse/rect rasterizers, the GPU-shared §6.6 path) — `crates/primitive-core/src/raster_int.rs` (new module; f64 golden reference stays in `raster.rs`). `ellipse_inside` = integer implicit test `ry²·dx²+rx²·dy² ≤ rx²·ry²`; `rasterize_ellipse_int`/`rasterize_rectangle_int`.
+- **CORE-3 Part B.2** (on-device ellipse/rect score kernels) — `crates/primitive-gpu-cubecl/src/score_shapes.rs` (`score_ellipses`/`score_rectangles`), tests `gpu2_ellipses.rs`/`gpu2_rects.rs` (1000/1000 bit-identical to the CPU integer path on Metal). The GPU *search loop* (`evolve`/`commit`) stays triangle-only until CORE-3b.3, so app GPU instant mode is still triangle-only.
 - **CORE-3 Part C** (GUI shape selector) — `crates/primitive-app/tests/e2e.rs` (ellipse run → `<ellipse>` SVG), `runner::tests` (pure `should_use_gpu` routing guard), `a11y_tree.rs` (all three options in the AccessKit tree + click mutates selection). `ShapeType` is selectable + persisted; GPU instant mode stays triangle-only (CORE-3b).
 - **GUI-2** — the §5A interaction gates in `crates/primitive-app/tests/*` (`state_suite` pure-state matrix,
   `e2e` load→100→SVG, `forced_cpu` device chip, `a11y_tree` AccessKit, `a11y_tokens` WCAG/Reduce-Motion).
 
-Full milestone state (CORE-1/2 · GPU-1/2/3 · GUI-1/2 · PKG-1 Part A · CORE-3 Part A+B.1+C — all ✅) lives in `.agent/PROGRESS.md` + `.agent/EVIDENCE.md`.
+Full milestone state (CORE-1/2 · GPU-1/2/3 · GUI-1/2 · PKG-1 Part A · CORE-3 Part A+B.1+B.2+C — all ✅) lives in `.agent/PROGRESS.md` + `.agent/EVIDENCE.md`.
 
 ## Rules for changes here
 

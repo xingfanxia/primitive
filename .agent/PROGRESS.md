@@ -218,12 +218,11 @@ Gate evidence (all green in `make verify`; `crates/primitive-core/tests/shapes.r
   flat-background baseline** (PSNR 32.15 / 33.07 dB); SVG export emits valid `<ellipse>` / `<rect>`.
 
 Scope notes (carry-forward, by design):
-- **CORE-3b (GPU)**: staged in three. **3b.1 (integer rasterizers) ✅ DONE** — see the Part B.1
-  section below. **3b.2/3b.3 remain**: the GPU batch path is still triangle-specific (`TriangleBatch`,
-  `score_triangles`, `evolve`/`commit` all assume 6-int triangles); `Shape::triangle_coords()`
-  **panics** for non-triangles with a CORE-3b pointer. 3b.2 = generalize the score kernel to consume
-  `rasterize_ellipse_int`/`rasterize_rectangle_int` with GPU↔CPU parity; 3b.3 = generalize
-  `evolve`/`commit` (in-kernel random/mutate per shape type).
+- **CORE-3b (GPU)**: staged in three. **3b.1 (integer rasterizers) + 3b.2 (on-device score kernels)
+  ✅ DONE** — see Part B.1 / B.2 below. **3b.3 remains**: the GPU *search loop* (`evolve`/`commit`) is
+  still triangle-specific (in-kernel random/mutate over 6-int triangles), so GPU instant mode in the app
+  stays triangle-only (`runner::should_use_gpu`). 3b.3 = generalize `evolve`/`commit` (in-kernel
+  random/mutate + the scanline scorer per shape type) so ellipse/rect get the full on-device search.
 - **CORE-3c (GUI)**: ✅ DONE — see the Part C section below.
 - **CORE-3a.2 (rigour)**: fogleman **bit-exact** parity for ellipse/rect needs the Go dumper
   (`go_primitive/primitive/parity_dump_test.go`, schema is triangle-only) extended; until then the
@@ -295,3 +294,32 @@ on-device with GPU↔CPU bit-identical parity (like GPU-2 for triangles), then 3
 search loop. Minor debt (review NIT, deferred to avoid a rename-only change): `shape.rs` has a private
 `clamp_i32` byte-identical to `raster.rs`'s now-`pub(crate)` one — fold the duplicate into the next
 `shape.rs` touch.
+
+## CORE-3 Part B.2 — on-device score kernels for ellipse + rectangle — ✅ DONE (2026-06-29)
+
+The GPU can now **rasterize + score ellipse & rectangle candidates on-device**, bit-exact against the
+CPU oracle — the GPU-2 triangle path generalized to the new shapes. New module
+`crates/primitive-gpu-cubecl/src/score_shapes.rs` (keeps `kernels.rs` under the 500-LOC gate):
+
+- **`inside_ellipse`** (`#[cube]`) mirrors `raster_int::ellipse_inside` in i32 (overflow-free ≤128 px).
+- **`score_one_ellipse`** / **`score_one_rect`** mirror `kernels::score_one` (closed-form color +
+  16-bit premultiplied composite + integer delta-SSE) with the ellipse bbox + `inside_ellipse` / the
+  rect bbox (every bbox pixel inside, no per-pixel test). Reuse the proven `channel_delta`/`clamp_0_255`
+  helpers, so the parity that holds for triangles carries by construction.
+- **`score_ellipses`** / **`score_rectangles`** batch kernels (4 ints/candidate), one thread each.
+- Host: `EllipseBatch`/`RectBatch` + `GpuSession::score_ellipses`/`score_rects` + one-shot
+  `gpu_score_ellipses`/`gpu_score_rectangles`. New `Shape::ellipse_coords()`/`rectangle_coords()`
+  accessors (the `[cx,cy,rx,ry]`/`[x1,y1,x2,y2]` flat layouts the kernels consume).
+
+Gate evidence (green in `make verify`, on Metal):
+- **`gpu2_ellipses.rs`** — `score_ellipses` == `rasterize_ellipse_int` + `candidate_color_and_delta`,
+  **1000/1000 candidates bit-identical** to the CPU integer path.
+- **`gpu2_rects.rs`** — `score_rectangles` == `rasterize_rectangle_int` + `candidate_color_and_delta`,
+  **1000/1000 candidates bit-identical**.
+
+Cleanup folded in (3b.1 review NIT): `shape.rs`'s private `clamp_i32` removed — now uses the shared
+`raster::clamp_i32` (`pub(crate)`).
+
+Carry-forward: this is the **scorer** only. CORE-3b.3 generalizes the GPU *search loop*
+(`search::evolve`/`commit` — in-kernel random/mutate per shape type) so the app's GPU instant mode can
+drop the triangle-only guard and run ellipse/rect fully on-device.
