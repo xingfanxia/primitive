@@ -1,16 +1,30 @@
 #!/usr/bin/env bash
 # PKG-1 — package the `primitive` macOS app.
 #
-# Part A (this script, autonomous, NO credentials, NO network): build the .app with cargo-bundle and
-# validate it, then **HALT immediately before the first codesign step**, printing the exact Part B
-# commands. This script NEVER calls codesign / notarytool / stapler itself — those touch Apple
-# credentials and the network and MUST be run interactively, with you in the loop (plan §7 PKG-1).
+# DEFAULT (no args) — Part A: build the .app with cargo-bundle + validate it, then HALT before any
+#   signing. Autonomous, no Apple credentials, no notarization network. (A cold `cargo bundle` may
+#   still fetch crates from crates.io — "no network" here means no Apple/notarization traffic.) This
+#   is what `make bundle` runs.
 #
-# Part B (you run the printed commands by hand, confirming each step): codesign → create-dmg →
-# notarytool submit → stapler staple. See the HALT message below for the literal commands.
+# WITH --sign — Part B: the full Developer ID distribution chain (codesign → notarize → staple →
+#   verify) using YOUR Apple credentials, read from the environment. Interactive/credentialed — you
+#   run it. Nothing signs, uploads, or contacts Apple unless you pass --sign.
 #
-# Usage: scripts/ops/sign-notarize.sh
-set -euo pipefail
+# Part B credentials (environment variables):
+#   SIGN_IDENTITY   "Developer ID Application: NAME (TEAMID)"      (required; see `security find-identity -v -p codesigning`)
+#   and ONE notarization credential set:
+#     NOTARY_PROFILE   an xcrun notarytool keychain-profile name   (recommended), OR
+#     APPLE_ID + TEAM_ID + APP_PASSWORD                            (app-specific password, appleid.apple.com)
+#
+# One-time setup, the app-specific password, and troubleshooting: docs/pkg/RUNBOOK.md
+#
+# Usage:
+#   scripts/ops/sign-notarize.sh                                   # Part A only (build + validate + halt)
+#   SIGN_IDENTITY="Developer ID Application: Jane Doe (ABCDE12345)" \
+#     NOTARY_PROFILE=primitive-notary \
+#     scripts/ops/sign-notarize.sh --sign                          # Part A + Part B (sign → notarize → staple)
+# -E (errtrace) so the ERR trap set in the --sign path fires even from inside part_b().
+set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
@@ -20,63 +34,151 @@ export PATH="$HOME/.cargo/bin:$PATH"
 
 APP_NAME="primitive"
 BUNDLE_ID="com.primitive.app"
-APP_PATH="target/release/bundle/osx/${APP_NAME}.app"
+DIST_DIR="target/release/bundle/osx"
+APP_PATH="${DIST_DIR}/${APP_NAME}.app"
+DMG_PATH="${DIST_DIR}/${APP_NAME}.dmg"
+ZIP_PATH="${DIST_DIR}/${APP_NAME}.zip"
 
-echo "==> [Part A] Validating canonical Info.plist"
-plutil -lint assets/Info.plist
+MODE="parta"
+case "${1:-}" in
+  "")        MODE="parta" ;;
+  --sign)    MODE="sign" ;;
+  -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+  *) echo "ERROR: unknown argument '$1' (expected --sign or no args)" >&2; exit 2 ;;
+esac
 
-echo "==> [Part A] Building the app bundle (cargo bundle --release)"
-if ! command -v cargo-bundle >/dev/null 2>&1; then
-  echo "ERROR: cargo-bundle not installed. Run: cargo install cargo-bundle" >&2
-  exit 1
-fi
-# cargo-bundle reads [package.metadata.bundle] from the *package* manifest, so run it from the
-# crate dir (the virtual workspace root has no [package]); output still lands in the shared target/.
-# `--format osx` → just the unsigned .app; the DMG is built in Part B *from the signed app* (the
-# canonical order is sign → package → notarize, so we don't ship the unsigned dmg cargo would make).
-( cd crates/primitive-app && cargo bundle --release --format osx )
+# ─────────────────────────────────────────────────────────────────────────────
+# Part A — build + validate the unsigned bundle (no credentials, no network).
+# ─────────────────────────────────────────────────────────────────────────────
+part_a() {
+  echo "==> [Part A] Validating canonical Info.plist"
+  plutil -lint assets/Info.plist
 
-if [ ! -d "${APP_PATH}" ]; then
-  echo "ERROR: expected bundle not found at ${APP_PATH}" >&2
-  exit 1
-fi
+  echo "==> [Part A] Building the app bundle (cargo bundle --release)"
+  if ! command -v cargo-bundle >/dev/null 2>&1; then
+    echo "ERROR: cargo-bundle not installed. Run: cargo install cargo-bundle" >&2
+    exit 1
+  fi
+  # cargo-bundle reads [package.metadata.bundle] from the *package* manifest, so run it from the crate
+  # dir (the virtual workspace root has no [package]); output still lands in the shared target/.
+  # `--format osx` → just the UNSIGNED .app; the DMG is built in Part B *from the signed app* (canonical
+  # order is sign → package → notarize, so we never ship the unsigned dmg cargo would otherwise make).
+  ( cd crates/primitive-app && cargo bundle --release --format osx )
 
-echo "==> [Part A] Validating the produced bundle"
-plutil -lint "${APP_PATH}/Contents/Info.plist"
-test -x "${APP_PATH}/Contents/MacOS/${APP_NAME}" || {
-  echo "ERROR: bundle executable missing/not executable" >&2
-  exit 1
+  [ -d "${APP_PATH}" ] || { echo "ERROR: expected bundle not found at ${APP_PATH}" >&2; exit 1; }
+
+  echo "==> [Part A] Validating the produced bundle"
+  plutil -lint "${APP_PATH}/Contents/Info.plist"
+  test -x "${APP_PATH}/Contents/MacOS/${APP_NAME}" || {
+    echo "ERROR: bundle executable missing/not executable" >&2; exit 1; }
+  echo "    OK — ${APP_PATH} built and structurally valid."
 }
-echo "    OK — ${APP_PATH} built and structurally valid."
 
-cat <<HALT
+# ─────────────────────────────────────────────────────────────────────────────
+# Part B — Developer ID: codesign → notarize → staple → verify (YOUR credentials).
+# cargo-bundle produces an UNSIGNED bundle with NO hardened runtime, so we sign the whole chain here.
+# ─────────────────────────────────────────────────────────────────────────────
+part_b() {
+  echo ""
+  echo "==> [Part B] Developer ID sign + notarize + staple"
+
+  # --- credentials preflight ---
+  : "${SIGN_IDENTITY:?Set SIGN_IDENTITY=\"Developer ID Application: NAME (TEAMID)\" — see docs/pkg/RUNBOOK.md}"
+
+  local -a NOTARY_AUTH
+  if [ -n "${NOTARY_PROFILE:-}" ]; then
+    NOTARY_AUTH=(--keychain-profile "$NOTARY_PROFILE")
+  elif [ -n "${APPLE_ID:-}" ] && [ -n "${TEAM_ID:-}" ] && [ -n "${APP_PASSWORD:-}" ]; then
+    NOTARY_AUTH=(--apple-id "$APPLE_ID" --team-id "$TEAM_ID" --password "$APP_PASSWORD")
+  else
+    echo "ERROR: set NOTARY_PROFILE (recommended), or APPLE_ID + TEAM_ID + APP_PASSWORD." >&2
+    echo "       See docs/pkg/RUNBOOK.md → 'One-time setup'." >&2
+    exit 1
+  fi
+
+  if ! security find-identity -v -p codesigning | grep -qF "$SIGN_IDENTITY"; then
+    echo "ERROR: signing identity not found in your keychain:" >&2
+    echo "         $SIGN_IDENTITY" >&2
+    echo "       Available Developer ID identities:" >&2
+    security find-identity -v -p codesigning >&2 || true
+    exit 1
+  fi
+
+  local INNER="${APP_PATH}/Contents/MacOS/${APP_NAME}"
+
+  # Inside-out signing here covers exactly two nodes because a cargo-bundle'd plain Rust app has ONE
+  # Mach-O and no nested frameworks/dylibs/helpers. If a future change bundles nested code under
+  # Contents/, sign each inner item (deepest first) before the two lines below, or notarization rejects
+  # it as unsigned nested code.
+  # --- sign inside-out (NO --deep; deprecated for signing — TN2206): inner Mach-O first, then bundle.
+  # Hardened runtime (--options runtime) + secure timestamp (--timestamp) are both REQUIRED to notarize.
+  # No --entitlements: a plain wgpu/Metal + winit app needs none (Metal doesn't JIT; Rust is static).
+  echo "==> [Part B] codesign (hardened runtime + secure timestamp, inside-out)"
+  xattr -cr "$APP_PATH"   # strip Finder/quarantine detritus that breaks signing
+  codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$INNER"
+  codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP_PATH"
+
+  echo "==> [Part B] verify signature (--deep IS correct on verify)"
+  codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+  codesign -dvv "$APP_PATH" 2>&1 | grep -E 'flags|Timestamp' || true   # expect flags=0x10000(runtime) + a Timestamp
+
+  # --- notarize the .app (zip is only transport; the ticket keys off the signature), then staple the app.
+  echo "==> [Part B] notarize the app (notarytool submit --wait)"
+  rm -f "$ZIP_PATH"
+  ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"   # ditto, not zip — plain zip mangles bundles
+  xcrun notarytool submit "$ZIP_PATH" "${NOTARY_AUTH[@]}" --wait
+  xcrun stapler staple "$APP_PATH"                   # embed the ticket in the on-disk .app
+  rm -f "$ZIP_PATH"                                  # drop the transport zip (holds an UNSTAPLED app —
+                                                     # it'd fail Gatekeeper offline; the .dmg is the deliverable)
+
+  # --- package the DMG FROM the stapled app, then sign + notarize + staple the DMG too.
+  # (Notarizing the dmg does NOT ticket the inner app — staple both so each validates offline.)
+  echo "==> [Part B] build + sign + notarize + staple the DMG"
+  rm -f "$DMG_PATH"
+  hdiutil create -volname "$APP_NAME" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_PATH"
+  codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG_PATH"   # container: no --options runtime
+  xcrun notarytool submit "$DMG_PATH" "${NOTARY_AUTH[@]}" --wait
+  xcrun stapler staple "$DMG_PATH"
+
+  # --- final done-gate (plan §7 PKG-1) ---
+  echo "==> [Part B] verify (the real done-gate)"
+  xcrun stapler validate "$APP_PATH"                 # → "The validate action worked!"
+  xcrun stapler validate "$DMG_PATH"
+  spctl --assess --type execute -vv "$APP_PATH"      # → accepted … source=Notarized Developer ID
+
+  echo ""
+  echo "    ✅ signed + notarized + stapled (bundle id ${BUNDLE_ID}):"
+  echo "         app: ${APP_PATH}"
+  echo "         dmg: ${DMG_PATH}   ← distribute this"
+}
+
+print_halt() {
+  cat <<HALT
 
 ────────────────────────────────────────────────────────────────────────────
-HALT: stopping BEFORE codesign. Part A is complete and touched NO credentials.
+HALT: Part A complete — no Apple credentials, no notarization network. The bundle is UNSIGNED.
 
-Part B is interactive — run each command yourself, confirming as you go. You
-hold the Apple credentials; this script will not run these for you.
+To sign + notarize (Part B), set your credentials and re-run with --sign:
 
-  # 1. Sign (Developer ID Application cert must be in your login keychain)
-  codesign --sign "Developer ID Application: <YOUR NAME> (<TEAMID>)" \\
-    --timestamp --options runtime --deep --force "${APP_PATH}"
-  codesign --verify --strict --verbose=2 "${APP_PATH}"
+  SIGN_IDENTITY="Developer ID Application: <YOUR NAME> (<TEAMID>)" \\
+    NOTARY_PROFILE=<your-notarytool-profile> \\
+    scripts/ops/sign-notarize.sh --sign        # or:  make sign
 
-  # 2. Build a DMG (brew install create-dmg)
-  create-dmg --volname "${APP_NAME}" --app-drop-link 480 170 \\
-    "target/release/bundle/osx/${APP_NAME}.dmg" "${APP_PATH}"
-
-  # 3. Notarize (use an app-specific password or a notarytool keychain profile)
-  xcrun notarytool submit "target/release/bundle/osx/${APP_NAME}.dmg" \\
-    --apple-id "<APPLE_ID_EMAIL>" --team-id "<TEAMID>" \\
-    --password "<APP_SPECIFIC_PASSWORD>" --wait
-
-  # 4. Staple the ticket onto the .app (and/or the .dmg)
-  xcrun stapler staple "${APP_PATH}"
-
-  # 5. Verify on a CLEAN machine (no dev tools) — the real done-gate (plan §7 PKG-1):
-  xcrun stapler validate "${APP_PATH}"          # → "The validate action worked!"
-  spctl --assess --type execute -vv "${APP_PATH}"  # → "accepted ... source=Notarized Developer ID"
-  #   bundle id should read: ${BUNDLE_ID}
+One-time setup (Developer ID cert, app-specific password, notarytool profile),
+the exact chain, and troubleshooting: docs/pkg/RUNBOOK.md
 ────────────────────────────────────────────────────────────────────────────
 HALT
+}
+
+on_err() {
+  echo "" >&2
+  echo "✗ Part B failed. Common causes + fixes: docs/pkg/RUNBOOK.md → 'Troubleshooting'." >&2
+}
+
+part_a
+if [ "$MODE" = "sign" ]; then
+  trap on_err ERR
+  part_b
+else
+  print_halt
+fi
