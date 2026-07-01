@@ -17,7 +17,9 @@ measure-and-print under `make verify`/CI (a shared CI GPU is far slower) and are
 under `make perf` (`PRIMITIVE_PERF_GATE=1`) on representative hardware (Apple Silicon / discrete
 NVIDIA). See `crates/primitive-gpu-cubecl/tests/common/mod.rs`.
 Useful sub-targets: `make baseline` (CPU shapes/sec), `make golden` (SSIM + quality margin),
-`make bundle` (PKG-1: build+validate `primitive.app`, halt before codesign), `make icon` (regenerate the app icon).
+`make bundle` (PKG-1 Part A: build+validate `primitive.app`, halt before codesign — no creds),
+`make sign` (PKG-1 Part B: codesign→notarize→staple with your Apple creds — runbook: [`docs/pkg/RUNBOOK.md`](docs/pkg/RUNBOOK.md)),
+`make icon` (regenerate the app icon).
 
 Run the desktop app: `cargo run -p primitive-app --release` (binary `primitive`).
 
@@ -51,7 +53,9 @@ core (pure) ← compute (ports) ← engine (orchestration) ← adapters / app (c
 - **GUI-2** — the §5A interaction gates in `crates/primitive-app/tests/*` (`state_suite` pure-state matrix,
   `e2e` load→100→SVG, `forced_cpu` device chip, `a11y_tree` AccessKit, `a11y_tokens` WCAG/Reduce-Motion).
 
-Full milestone state (CORE-1/2 · GPU-1/2/3 · GUI-1/2 · PKG-1 Part A · CORE-3 complete: A+B.1+B.2+B.3+C — all ✅) lives in `.agent/PROGRESS.md` + `.agent/EVIDENCE.md`.
+- **PKG-1 Part B** (Developer ID sign + notarize + staple) — `scripts/ops/sign-notarize.sh --sign` (`make sign`); the full chain (codesign inside-out, hardened runtime, notarytool, staple app+dmg, verify) is scripted, gated on your Apple creds (`SIGN_IDENTITY` + `NOTARY_PROFILE`). Setup + troubleshooting: [`docs/pkg/RUNBOOK.md`](docs/pkg/RUNBOOK.md). Nothing signs/uploads without `--sign`.
+
+Full milestone state (CORE-1/2 · GPU-1/2/3 · GUI-1/2 · PKG-1 Part A + B-scripted · CORE-3 complete: A+B.1+B.2+B.3+C — all ✅) lives in `.agent/PROGRESS.md` + `.agent/EVIDENCE.md`.
 
 ## Rules for changes here
 

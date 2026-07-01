@@ -1,6 +1,6 @@
 # Primitive 2026 — developer entry points. `make verify` is the canonical CORRECTNESS gate (CI runs
 # it); `make perf` is the hardware-dependent PERFORMANCE gate, run on representative hardware only.
-.PHONY: verify perf test fmt clippy boundaries build baseline golden bundle icon
+.PHONY: verify perf test fmt clippy boundaries build baseline golden bundle sign icon
 
 verify:
 	./tools/verify/check.sh
@@ -40,6 +40,12 @@ golden:
 # PKG-1 Part A: build + validate the macOS .app and HALT before codesign (no credentials, no network).
 bundle:
 	./scripts/ops/sign-notarize.sh
+
+# PKG-1 Part B: build, then codesign -> notarize -> staple -> verify (Developer ID distribution).
+# Needs YOUR Apple credentials in the environment — see docs/pkg/RUNBOOK.md:
+#   SIGN_IDENTITY="Developer ID Application: NAME (TEAMID)" NOTARY_PROFILE=<profile> make sign
+sign:
+	./scripts/ops/sign-notarize.sh --sign
 
 # Regenerate the app icon set (flat-geometric triangle mark) + primitive.icns.
 icon:

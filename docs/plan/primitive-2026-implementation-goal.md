@@ -47,13 +47,17 @@ is measured against. Nothing downstream is trustworthy without the golden image 
 > **Status (2026-06-30):** ✅ CORE-1/2 · ✅ GPU-1/2/3 · ✅ GPU-3 perf pass (self-adaptive step, 519 sps @ 64×64,
 > ~1.9× fogleman) · ✅ GUI-1/2 (all 6 §5A gates green) · ✅ CORE-3 complete (ellipse + rectangle: core + CPU +
 > on-device GPU search + GUI selector — A/B.1/B.2/B.3/C; GPU PSNR within 0.4 dB of CPU) · ✅ PKG-1 Part A
-> (`make bundle` builds + validates `primitive.app`, halts pre-codesign). `make verify` ALL GREEN. **Remaining =
-> interactive / other-machine only** (see the PKG-1 Part A note below). GPU-4 (CUDA) is a different-machine job
-> (`docs/gpu4-cuda/RUNBOOK.md`). Full ledger: `.agent/PROGRESS.md` + `.agent/EVIDENCE.md`.
+> (`make bundle` builds + validates `primitive.app`, halts pre-codesign). `make verify` ALL GREEN. · ✅ PKG-1
+> Part B **scripted** (`make sign` — the full Developer ID chain; runbook `docs/pkg/RUNBOOK.md`; needs your
+> Apple creds to actually run). **Remaining = credential/other-machine only** (run `make sign` with your certs;
+> GPU-4/PKG-2 on NVIDIA/Windows). GPU-4 (CUDA) is a different-machine job (`docs/gpu4-cuda/RUNBOOK.md`). Full
+> ledger: `.agent/PROGRESS.md` + `.agent/EVIDENCE.md`.
 >
 > **PKG-1 Part A ✅ DONE (2026-06-29):** `make bundle` builds + validates `primitive.app` (`com.primitive.app`,
-> v0.1.0, flat-triangle icon) and HALTS before codesign — no credentials. **Remaining = interactive/other-machine
-> only:** PKG-1 Part B (codesign → notarize → staple, you hold the Apple credentials) and GPU-4/PKG-2 (NVIDIA/Windows).
+> v0.1.0, flat-triangle icon) and HALTS before codesign — no credentials.
+> **PKG-1 Part B ✅ SCRIPTED (2026-07-01):** `make sign` / `scripts/ops/sign-notarize.sh --sign` runs the whole
+> codesign→notarize→staple→verify chain, gated on your Apple creds (`SIGN_IDENTITY` + `NOTARY_PROFILE`); setup +
+> troubleshooting in `docs/pkg/RUNBOOK.md`. **Remaining = run it with your certs** + GPU-4/PKG-2 (NVIDIA/Windows).
 
 ### GPU slice — prove the speedup (the headline result) — ✅ DONE
 ```
@@ -122,10 +126,16 @@ Done (pasteable): `plutil -lint assets/Info.plist` exits 0, `cargo bundle` produ
 script halts at the codesign step. No credentials touched.
 ```
 
-**Part B — sign / notarize / staple (interactive; confirm before EACH step; NO /goal, NO auto-mode):**
+**Part B — sign / notarize / staple (interactive; NO /goal, NO auto-mode): ✅ SCRIPTED (2026-07-01)**
+
+> **Superseded by `scripts/ops/sign-notarize.sh --sign` (`make sign`) — runbook `docs/pkg/RUNBOOK.md`.** The
+> original sketch below is kept for provenance but is **out of date**: the script signs **inside-out without
+> `--deep`** (Apple deprecated `--deep` for signing — TN2206), uses `xcrun notarytool` with a keychain profile,
+> and staples **both** the `.app` and the `.dmg`. Run `make sign` with your `SIGN_IDENTITY` + `NOTARY_PROFILE`;
+> still credential-gated, so no /goal / auto-mode.
+
 ```
-Continue scripts/ops/sign-notarize.sh from where Part A halted. Run step-by-step, pausing for my explicit
-confirmation before EACH credential/network step (I hold the Apple credentials):
+# ⚠️ HISTORICAL SKETCH — superseded by scripts/ops/sign-notarize.sh --sign (drops --deep; see RUNBOOK).
   1. codesign --sign "Developer ID Application: <name>" --timestamp --options runtime --deep --force primitive.app
   2. create-dmg ... primitive.dmg
   3. xcrun notarytool submit primitive.dmg --apple-id <email> --team-id <team> --password <app-specific-pw>

@@ -178,8 +178,10 @@ ungated artifact (needs a GPU window to watch). Out of scope by design: the mult
 
 - **GPU-4: CUDA on a discrete NVIDIA GPU — see `docs/gpu4-cuda/RUNBOOK.md`** (runs on another machine;
   settles the big-canvas GPU-vs-fogleman number the Mac can't produce). i64 is native on CUDA.
-- **PKG-1 Part B** (codesign → create-dmg → notarytool → staple) + **PKG-2** (Windows): **interactive
-  only** (Apple/Windows credentials), never under auto-mode / `/goal`.
+- **PKG-1 Part B** (codesign → notarytool → staple) is now **scripted** — `make sign` / `scripts/ops/
+  sign-notarize.sh --sign`, runbook `docs/pkg/RUNBOOK.md`. Still credential-gated (your Apple creds via
+  `SIGN_IDENTITY` + `NOTARY_PROFILE`) and never runs without `--sign`, so it stays off auto-mode / `/goal`;
+  the *authoring* is done. **PKG-2** (Windows): still interactive/other-machine.
 
 ## PKG-1 Part A — macOS bundle scaffolding (no signing, no network) — ✅ DONE (2026-06-29)
 
@@ -188,14 +190,21 @@ ungated artifact (needs a GPU window to watch). Out of scope by design: the mult
 icon set `assets/icons/icon_{512..16}.png` + `primitive.icns` (the app's own translucent-triangle
 motif, generated offline by `scripts/ops/gen-icon.py` — no gpt-image/network), `[package.metadata.bundle]`
 in `crates/primitive-app/Cargo.toml`, and `scripts/ops/sign-notarize.sh` (also `make bundle`) that
-builds + validates the `.app` then **HALTS with printed Part B instructions immediately before the first
-`codesign` step** — it never calls codesign/notarytool/stapler itself.
+builds + validates the `.app` then **HALTS before the first `codesign` step** (default / no-arg mode
+touches no credentials and no network).
 
 Gate evidence (no credentials touched): `plutil -lint assets/Info.plist` → `OK`; `cargo bundle --format
 osx` → `target/release/bundle/osx/primitive.app` (generated Info.plist id `com.primitive.app`,
 `primitive.icns` in Resources, executable present); the script halts at the codesign boundary.
-**Part B (sign/notarize/staple) is interactive-only** — done-gate is `xcrun stapler validate` + `spctl
---assess` = accepted on a *clean* machine (verified off-`/goal`, with you holding the Apple credentials).
+
+**PKG-1 Part B — sign/notarize/staple is now scripted (2026-07-01):** the same
+`scripts/ops/sign-notarize.sh`, invoked with `--sign` (`make sign`), runs the full Developer ID chain —
+codesign **inside-out** (hardened runtime + secure timestamp, **no `--deep`**, no entitlements), notarize
+via `xcrun notarytool` (keychain profile or Apple-ID trio), staple **both** the `.app` and the `.dmg`,
+then the done-gate `stapler validate` + `spctl --assess … = Notarized Developer ID`. Credential-gated
+(`SIGN_IDENTITY` + `NOTARY_PROFILE`/`APPLE_ID`…), so it stays off auto-mode / `/goal`. One-time setup +
+troubleshooting: `docs/pkg/RUNBOOK.md`. (Commands verified against current Apple docs — TN3147 notarytool,
+TN2206 `--deep` deprecation, hardened-runtime entitlements guidance.)
 
 ## CORE-3 Part A — Ellipse + Rectangle (core + CPU) — ✅ DONE (2026-06-29)
 
