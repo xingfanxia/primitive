@@ -1,13 +1,19 @@
 //! Headless reconstruction demo (and manual smoke test): rebuild an image from geometric primitives
-//! for all three shape types and write the results as PNGs — no window, no screen capture. This is
-//! the same engine the GUI drives: the GPU "instant" path (`gpu_optimize`, incl. the CORE-3b.3
-//! ellipse/rect on-device search) when a Metal/CUDA device is present, else the CPU oracle (`Model`).
+//! for all three shape types and write the results as PNGs — no window, no screen capture.
+//!
+//! It exercises the same search code the app is built on: the GPU "instant" path (`gpu_optimize`,
+//! incl. the CORE-3b.3 ellipse/rect on-device search) when a Metal/CUDA device is present, else the
+//! CPU reference search (`Model` — the parity oracle the GUI's `Engine<CpuSearch>` wraps). NOTE: the
+//! GUI itself currently routes only triangles to the GPU (`runner::should_use_gpu`), so this demo —
+//! which runs ALL three shapes through `gpu_optimize` — is the only end-to-end driver of the GPU
+//! ellipse/rect search outside the test suite.
 //!
 //!   cargo run -p primitive-app --release --example reconstruct -- [out_dir] [sample|image_path]
 //!
-//! `out_dir` defaults to `.`; the source defaults to the bundled `cat` sample (or pass `mona lisa`,
-//! or a path to any PNG/JPEG). Writes `<out_dir>/recon-{target,triangle,ellipse,rect}.png` and prints
-//! the PSNR of each reconstruction against the (downscaled) target.
+//! `out_dir` (default `.`, created if missing) gets `recon-{target,triangle,ellipse,rect}.png` (fixed
+//! names — overwrites). Source: the bundled `cat` (default) or `mona lisa`, or a path to any PNG/JPEG.
+//! Prints each shape's PSNR vs the downscaled target — this is **per-backend** (GPU and CPU use
+//! different search effort), not a cross-backend benchmark.
 
 use std::path::{Path, PathBuf};
 
@@ -15,25 +21,27 @@ use primitive_app::image_io;
 use primitive_core::{difference_full, psnr_from_score, Canvas, Model, Rng, ShapeType};
 use primitive_gpu_cubecl::{gpu_available, gpu_optimize, OptConfig};
 
-/// GPU instant-mode canvas cap (i32-safe for the integer rasterizers, §6.6); the CPU path uses the
-/// same size so both backends produce comparable output.
+/// Working resolution: the GPU "instant" cap, i32-safe for the integer ellipse test (§6.6 — the
+/// `w <= 182` bound in `gpu_optimize`; the app pins the same 128 in `runner::GPU_INSTANT_MAX`). Both
+/// backends run at this size so a run's per-shape PSNRs are comparable to each other.
 const WORK: u32 = 128;
 const SHAPES: usize = 300;
 const ALPHA: i32 = 128;
 const SEED: u32 = 1;
 
 /// Resolve the source arg to a working-resolution target: an existing file path, else a bundled
-/// sample matched by name (default `cat`).
+/// sample matched by name. Errors loudly on an unresolvable arg (rather than silently substituting a
+/// default) so a typo'd path or sample name can't masquerade as a bad reconstruction.
 fn load_target(src: &str) -> Canvas {
     let (_dims, canvas) = if Path::new(src).is_file() {
         image_io::load_path(Path::new(src)).expect("read image")
-    } else {
-        let bytes = image_io::SAMPLES
-            .iter()
-            .find(|(name, _)| *name == src)
-            .map(|(_, b)| *b)
-            .unwrap_or(image_io::SAMPLES[0].1);
+    } else if let Some((_, bytes)) = image_io::SAMPLES.iter().find(|(name, _)| *name == src) {
         image_io::load_bytes(bytes).expect("decode sample")
+    } else if src.contains(['/', '.']) {
+        panic!("no such image file: {src:?}");
+    } else {
+        let names: Vec<&str> = image_io::SAMPLES.iter().map(|(n, _)| *n).collect();
+        panic!("unknown source {src:?}; pass an image path or a sample name: {names:?}");
     };
     image_io::downscale(&canvas, WORK)
 }
@@ -63,6 +71,7 @@ fn reconstruct(target: &Canvas, shape: ShapeType, gpu: bool) -> Canvas {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let out = PathBuf::from(args.get(1).map(String::as_str).unwrap_or("."));
+    // Default source only when NO arg is given; a supplied-but-unresolvable arg errors in load_target.
     let src = args.get(2).map(String::as_str).unwrap_or("cat");
 
     let target = load_target(src);
@@ -77,6 +86,8 @@ fn main() {
             "CPU (Model)"
         },
     );
+
+    std::fs::create_dir_all(&out).expect("create out_dir");
     image_io::export_png(&target, &out.join("recon-target.png")).expect("write target");
 
     for (shape, name) in [
