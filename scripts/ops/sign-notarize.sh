@@ -2,11 +2,13 @@
 # PKG-1 — package the `primitive` macOS app.
 #
 # DEFAULT (no args) — Part A: build the .app with cargo-bundle + validate it, then HALT before any
-#   signing. Autonomous, NO credentials, NO network. This is what `make bundle` runs.
+#   signing. Autonomous, no Apple credentials, no notarization network. (A cold `cargo bundle` may
+#   still fetch crates from crates.io — "no network" here means no Apple/notarization traffic.) This
+#   is what `make bundle` runs.
 #
 # WITH --sign — Part B: the full Developer ID distribution chain (codesign → notarize → staple →
 #   verify) using YOUR Apple credentials, read from the environment. Interactive/credentialed — you
-#   run it. Nothing signs, uploads, or touches the network unless you pass --sign.
+#   run it. Nothing signs, uploads, or contacts Apple unless you pass --sign.
 #
 # Part B credentials (environment variables):
 #   SIGN_IDENTITY   "Developer ID Application: NAME (TEAMID)"      (required; see `security find-identity -v -p codesigning`)
@@ -21,7 +23,8 @@
 #   SIGN_IDENTITY="Developer ID Application: Jane Doe (ABCDE12345)" \
 #     NOTARY_PROFILE=primitive-notary \
 #     scripts/ops/sign-notarize.sh --sign                          # Part A + Part B (sign → notarize → staple)
-set -euo pipefail
+# -E (errtrace) so the ERR trap set in the --sign path fires even from inside part_b().
+set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
@@ -103,6 +106,10 @@ part_b() {
 
   local INNER="${APP_PATH}/Contents/MacOS/${APP_NAME}"
 
+  # Inside-out signing here covers exactly two nodes because a cargo-bundle'd plain Rust app has ONE
+  # Mach-O and no nested frameworks/dylibs/helpers. If a future change bundles nested code under
+  # Contents/, sign each inner item (deepest first) before the two lines below, or notarization rejects
+  # it as unsigned nested code.
   # --- sign inside-out (NO --deep; deprecated for signing — TN2206): inner Mach-O first, then bundle.
   # Hardened runtime (--options runtime) + secure timestamp (--timestamp) are both REQUIRED to notarize.
   # No --entitlements: a plain wgpu/Metal + winit app needs none (Metal doesn't JIT; Rust is static).
@@ -121,6 +128,8 @@ part_b() {
   ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"   # ditto, not zip — plain zip mangles bundles
   xcrun notarytool submit "$ZIP_PATH" "${NOTARY_AUTH[@]}" --wait
   xcrun stapler staple "$APP_PATH"                   # embed the ticket in the on-disk .app
+  rm -f "$ZIP_PATH"                                  # drop the transport zip (holds an UNSTAPLED app —
+                                                     # it'd fail Gatekeeper offline; the .dmg is the deliverable)
 
   # --- package the DMG FROM the stapled app, then sign + notarize + staple the DMG too.
   # (Notarizing the dmg does NOT ticket the inner app — staple both so each validates offline.)
@@ -147,7 +156,7 @@ print_halt() {
   cat <<HALT
 
 ────────────────────────────────────────────────────────────────────────────
-HALT: Part A complete — touched NO credentials, NO network. The bundle is UNSIGNED.
+HALT: Part A complete — no Apple credentials, no notarization network. The bundle is UNSIGNED.
 
 To sign + notarize (Part B), set your credentials and re-run with --sign:
 

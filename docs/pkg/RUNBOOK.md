@@ -28,7 +28,8 @@ the one-time setup + what the script does + how to verify + troubleshooting.
    <https://appleid.apple.com> → *Sign-In & Security* → *App-Specific Passwords*.
 
 2. **Store notary credentials in the keychain** (recommended — keeps the password out of your shell
-   history; `store-credentials` validates it immediately):
+   history *and* off the process list: the `APPLE_ID`/`APP_PASSWORD` path passes the password as a
+   `notarytool` argv, briefly visible via `ps`. `store-credentials` also validates it immediately):
    ```bash
    xcrun notarytool store-credentials "primitive-notary" \
      --apple-id "you@example.com" --team-id "ABCDE12345"
@@ -91,7 +92,7 @@ codesign -dvv target/release/bundle/osx/primitive.app 2>&1 | grep -E 'flags|Time
 | notarization rejects nested/unsigned code | something sealed code as a resource (usually stray `--deep`) → the script signs inside-out without `--deep`; check you have no extra nested binaries |
 | App shows “damaged”/blocked **offline** despite success | the `.app` (or `.dmg`) wasn't stapled → the script staples both; re-run and confirm `stapler validate` passes |
 | `resource fork, Finder information, or similar detritus not allowed` | stale xattrs → the script runs `xattr -cr` first; if it persists, clean the source tree |
-| See why notarization failed | `xcrun notarytool log <submission-id> --keychain-profile primitive-notary` (the id is printed by `--wait`) |
+| See why notarization failed | `xcrun notarytool log <submission-id> --keychain-profile primitive-notary` (the id is printed by `--wait`; on the trio path use `--apple-id … --team-id … --password …` instead of `--keychain-profile`) |
 
 ## Sources
 
