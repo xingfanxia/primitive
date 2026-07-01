@@ -20,6 +20,8 @@ Useful sub-targets: `make baseline` (CPU shapes/sec), `make golden` (SSIM + qual
 `make bundle` (PKG-1: build+validate `primitive.app`, halt before codesign), `make icon` (regenerate the app icon).
 
 Run the desktop app: `cargo run -p primitive-app --release` (binary `primitive`).
+Reconstruct an image headlessly to PNGs (same engine, no window — GPU instant path when a device is
+present, else the CPU oracle): `cargo run -p primitive-app --release --example reconstruct -- <out_dir> [sample|image_path]`.
 
 ## Crate map & import direction (hexagonal — enforced by `tools/verify/check-boundaries.sh`)
 
